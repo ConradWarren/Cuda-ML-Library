@@ -12,16 +12,21 @@ public:
 	size_t inputs;
 	size_t batch_size;
 	double* forward_output;
-	
+	double* backward_input;
+	activation_functions layer_activation_function;
+
 	void virtual forward(const std::vector<std::vector<double>>& batched_inputs) = 0;
 	void virtual forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) = 0;
-	void virtual forward(double* batched_inputs, size_t input_size, size_t batch_size) = 0;
+	void virtual forward(double* batched_inputs, size_t input_size, size_t _batch_size) = 0;
 	void virtual forward(const layer* prev_layer) = 0;
 
 	double virtual loss(std::vector<std::vector<double>>& batched_targets) const = 0;
 	double virtual loss(std::vector<int>& batched_targets) const = 0;
 	double virtual loss(std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const = 0;
 
+	void virtual init_back_propigation(std::vector<std::vector<double>>& batched_targets) = 0;
+	void virtual init_back_propigation(std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) = 0;
+	void virtual init_back_propigation(double* batched_targets, size_t input_size, size_t _batch_size) = 0;
 };
 
 class dense_layer : public layer {
@@ -30,6 +35,8 @@ public:
 
 	double* weights;
 	double* bias;
+	double* d_weights;
+	double* d_bias;
 	
 	dense_layer();
 	dense_layer(size_t _inputs, size_t _neurons);
@@ -43,5 +50,9 @@ public:
 	double virtual loss(std::vector<std::vector<double>>& batched_targets) const override;
 	double virtual loss(std::vector<int>& batched_targets) const override;
 	double virtual loss(std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;
+
+	void virtual init_back_propigation(std::vector<std::vector<double>>& batched_targets) override;
+	void virtual init_back_propigation(std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) override;
+	void virtual init_back_propigation(double* batched_targets, size_t input_size, size_t batch_size) override;
 };
 

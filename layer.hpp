@@ -20,13 +20,18 @@ public:
 	void virtual forward(double* batched_inputs, size_t input_size, size_t _batch_size) = 0;
 	void virtual forward(const layer* prev_layer) = 0;
 
-	double virtual loss(std::vector<std::vector<double>>& batched_targets) const = 0;
-	double virtual loss(std::vector<int>& batched_targets) const = 0;
-	double virtual loss(std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const = 0;
+	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const = 0;
+	double virtual loss(const std::vector<int>& batched_targets) const = 0;
+	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const = 0;
 
-	void virtual init_back_propigation(std::vector<std::vector<double>>& batched_targets) = 0;
-	void virtual init_back_propigation(std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) = 0;
+	void virtual init_back_propigation(const std::vector<std::vector<double>>& batched_targets) = 0;
+	void virtual init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) = 0;
 	void virtual init_back_propigation(double* batched_targets, size_t input_size, size_t _batch_size) = 0;
+
+	void virtual backward(const std::vector<std::vector<double>>& batched_inputs) = 0;
+	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) = 0;
+	void virtual backward(double* batched_inputs, size_t input_size, size_t _batch_size) = 0;
+	void virtual backward(layer* prev_layer) = 0;
 };
 
 class dense_layer : public layer {
@@ -47,12 +52,17 @@ public:
 	void virtual forward(double* batched_inputs, size_t input_size, size_t batch_size) override;
 	void virtual forward(const layer* prev_layer) override;
 
-	double virtual loss(std::vector<std::vector<double>>& batched_targets) const override;
-	double virtual loss(std::vector<int>& batched_targets) const override;
-	double virtual loss(std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;
+	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
+	double virtual loss(const std::vector<int>& batched_targets) const override;
+	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;
 
-	void virtual init_back_propigation(std::vector<std::vector<double>>& batched_targets) override;
-	void virtual init_back_propigation(std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) override;
+	void virtual init_back_propigation(const std::vector<std::vector<double>>& batched_targets) override;
+	void virtual init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) override;
 	void virtual init_back_propigation(double* batched_targets, size_t input_size, size_t batch_size) override;
+
+	void virtual backward(const std::vector<std::vector<double>>& batched_inputs) override;
+	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override;
+	void virtual backward(double* batched_inputs, size_t input_size, size_t _batch_size) override;
+	void virtual backward(layer* prev_layer) override;
 };
 

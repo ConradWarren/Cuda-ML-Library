@@ -10,24 +10,35 @@ __global__ void Cuda_Convolutional_Layer_Forward_Pass(double* batched_inputs, do
 	size_t batch_idx = blockIdx.x * blockDim.x + threadIdx.x;
 	size_t kernal_idx = blockIdx.y * blockDim.y + threadIdx.y;
 	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
-
+	
 	if (batch_idx < batch_size && kernal_idx < kernals && position_idx < (output_size * output_size)) {
-
+		
 		size_t neurons = output_size * output_size * kernals;
-		forward_output[batch_idx * neurons + kernal_idx * output_size * output_size + position_idx] = 0.0;
+		forward_output[batch_idx * neurons + kernal_idx * output_size * output_size + position_idx] = bias[kernal_idx];
 		int starting_y_pos = (position_idx / output_size) * stride - padding;
 		int starting_x_pos = (position_idx % output_size) * stride - padding;
+		
+		for (int y = 0; y < (int)kernal_size; y++) {
 
-		for (int y = 0; y < kernal_size; y++) {
+			if (starting_y_pos + y < 0) {
+				continue;
+			}
 
-			for (int x = 0; x < kernal_size; x++) {
+			if (starting_y_pos + y >= input_size) {
+				break;
+			}
 
-				if (starting_y_pos + y < 0 || starting_y_pos + y >= input_size || starting_x_pos + x < 0 || starting_x_pos + x >= input_size) {
+			for (int x = 0; x < (int)kernal_size; x++) {
+
+				if (starting_x_pos + x < 0){ 
 					continue;
 				}
-				for (int z = 0; z < channels; z++) {
+				if (starting_x_pos + x >= input_size) {
+					break;
+				}
+				for (int z = 0; z < (int)channels; z++) {
 					forward_output[batch_idx * neurons + kernal_idx * output_size * output_size + position_idx] += weights[kernal_idx * channels * kernal_size * kernal_size + z * kernal_size * kernal_size + y * kernal_size + x] * batched_inputs[batch_idx * channels * input_size * input_size + z * input_size * input_size + (starting_y_pos + y) * input_size + (starting_x_pos + x)];
-				}	
+				}
 			}
 		}
 	}
@@ -72,14 +83,18 @@ convolutional_layer::convolutional_layer(size_t _input_size, size_t _channels, s
 	bias = (double*)malloc(kernals * sizeof(double));
 	d_bias = (double*)malloc(kernals * sizeof(double));
 
+	forward_output = nullptr;
+	backward_input = nullptr;
+	layer_activation_function = activation_functions::Linear;
+
 	if (weights == nullptr || d_weights == nullptr || bias == nullptr || d_bias == nullptr) {
 		std::cerr << "Error: Could not allocate memory in convolutional layer" << std::endl;
 		exit(EXIT_FAILURE);
-	}
+	}  
 
 	for (size_t i = 0; i < kernals; i++) {
 		bias[i] = (double)i;
-		for (size_t j = 0; j < kernal_size * kernal_size; j++) {
+		for (size_t j = 0; j < channels * kernal_size * kernal_size; j++) {
 			weights[i * kernal_size * kernal_size + j] = (double)(i * kernal_size * kernal_size + j);
 		}
 	}
@@ -102,7 +117,7 @@ void convolutional_layer::forward(const std::vector<std::vector<double>>& batche
 void convolutional_layer::forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) {
 	
 	double* input_arr = (double*)malloc(batched_inputs.size() * inputs * sizeof(double));
-
+	
 	if (input_arr == nullptr) {
 		std::cerr << "Error: Could not allocate memory in convolutional_layer for forward pass" << std::endl;
 		exit(EXIT_FAILURE);
@@ -132,7 +147,6 @@ void convolutional_layer::forward(const std::vector<std::vector<std::vector<std:
 			}
 		}
 	}
-
 	forward(input_arr, inputs, batched_inputs.size());
 
 	free(input_arr);
@@ -156,10 +170,10 @@ void convolutional_layer::forward(double* batched_inputs, size_t _input_size, si
 	}
 
 	if (batch_size != _batch_size) {
-		
+		std::cout << "called" << std::endl;
 		if (forward_output != nullptr) free(forward_output);
 		forward_output = (double*)malloc(_batch_size * neurons * sizeof(double));
-
+		
 		if (backward_input != nullptr) {
 			free(backward_input);
 			backward_input = nullptr;
@@ -221,11 +235,10 @@ void convolutional_layer::forward(double* batched_inputs, size_t _input_size, si
 		exit(error_code);
 	}
 
-	dim3 blocks(1, 1, 1);
-	dim3 threads(16, 16, 16);
+	dim3 blocks(5, 5, 5);
+	dim3 threads(6, 6, 6);
 	Cuda_Convolutional_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_inputs, cuda_weights, cuda_bias, cuda_forward_output, batch_size, kernals, kernal_size, padding, output_size, channels, input_size, stride);
 
-	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: failed to launch convolutional layer forward pass kernal" << std::endl;
@@ -240,19 +253,17 @@ void convolutional_layer::forward(double* batched_inputs, size_t _input_size, si
 	
 	//activation function kernals go here.
 	 
-	error_code = cudaGetLastError();
-	if (error_code != cudaError::cudaSuccess) {
+	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
 		std::cerr << "Error: failed to launch convolutional layer forward activation function kernal" << std::endl;
 		exit(error_code);
 	}
 
-	error_code = cudaDeviceSynchronize();
-	if (error_code != cudaError::cudaSuccess) {
+	if (layer_activation_function != activation_functions::Linear && (error_code = cudaDeviceSynchronize()) != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
 
-	error_code = cudaMemcpy(forward_output, cuda_forward_output, batch_size * neurons, cudaMemcpyDeviceToHost);
+	error_code = cudaMemcpy(forward_output, cuda_forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
 		exit(error_code);

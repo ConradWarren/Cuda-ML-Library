@@ -4,7 +4,7 @@
 #include <iostream>
 #include <stdio.h>
 
-__global__ void Cuda_Dense_Layer_Forward_Pass(double* batched_inputs, double* weights, double* bias, double* forward_output, size_t inputs, size_t neurons, size_t batch_size) {
+__global__ static void Cuda_Dense_Layer_Forward_Pass(double* batched_inputs, double* weights, double* bias, double* forward_output, size_t inputs, size_t neurons, size_t batch_size) {
 
 	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -18,7 +18,7 @@ __global__ void Cuda_Dense_Layer_Forward_Pass(double* batched_inputs, double* we
 	}
 }
 
-__global__ void Cuda_Init_Back_Propigation(double* batched_targets, double* forward_ouput, double* backward_input, size_t batch_size, size_t neurons) {
+__global__ static void Cuda_Init_Back_Propigation(double* batched_targets, double* forward_ouput, double* backward_input, size_t batch_size, size_t neurons) {
 
 	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -28,7 +28,7 @@ __global__ void Cuda_Init_Back_Propigation(double* batched_targets, double* forw
 	}
 }
 
-__global__ void Cuda_Dense_Layer_First_Backward_Pass(double* batched_inputs, double* backward_input, double* d_weights, size_t batch_size, size_t neurons, size_t inputs){
+__global__ static void Cuda_Dense_Layer_First_Backward_Pass(double* batched_inputs, double* backward_input, double* d_weights, size_t batch_size, size_t neurons, size_t inputs){
 	
 	size_t neuron_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t input_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -36,14 +36,13 @@ __global__ void Cuda_Dense_Layer_First_Backward_Pass(double* batched_inputs, dou
 	if (neuron_idx < neurons && input_idx < inputs) {
 
 		d_weights[neuron_idx * inputs + input_idx] = 0.0;
-		printf("%d %d\n", (int)neuron_idx, (int)input_idx);
 		for (size_t i = 0; i < batch_size; i++) {
 			d_weights[neuron_idx * inputs + input_idx] += batched_inputs[i * inputs + input_idx] * backward_input[i * neurons + neuron_idx];
 		}
 	}
 }
 
-__global__ void Cuda_Dense_Layer_Second_Backward_Pass(double* backward_input, double* d_bias, size_t batch_size, size_t neurons) {
+__global__ static void Cuda_Dense_Layer_Second_Backward_Pass(double* backward_input, double* d_bias, size_t batch_size, size_t neurons) {
 
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 	
@@ -55,7 +54,7 @@ __global__ void Cuda_Dense_Layer_Second_Backward_Pass(double* backward_input, do
 	}
 }
 
-__global__ void Cuda_Sigmoid_Activation_Forward_Pass(double* forward_output, size_t batch_size, size_t neurons) {
+__global__ static void Cuda_Sigmoid_Activation_Forward_Pass(double* forward_output, size_t batch_size, size_t neurons) {
 
 	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -65,7 +64,7 @@ __global__ void Cuda_Sigmoid_Activation_Forward_Pass(double* forward_output, siz
 	}
 }
 
-__global__ void Cuda_Sigmoid_Activation_Backward_Pass(double* backward_input, double* forward_output, size_t batch_size, size_t neurons) {
+__global__ static void Cuda_Sigmoid_Activation_Backward_Pass(double* backward_input, double* forward_output, size_t batch_size, size_t neurons) {
 
 	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -75,7 +74,7 @@ __global__ void Cuda_Sigmoid_Activation_Backward_Pass(double* backward_input, do
 	}
 }
 
-__global__ void Cuda_Rectified_Linear_Activation_Forward_Pass(double* forward_output, size_t batch_size, size_t neurons) {
+__global__ static void Cuda_Rectified_Linear_Activation_Forward_Pass(double* forward_output, size_t batch_size, size_t neurons) {
 
 	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -85,7 +84,7 @@ __global__ void Cuda_Rectified_Linear_Activation_Forward_Pass(double* forward_ou
 	}
 }
 
-__global__ void Cuda_Rectified_Linear_Activation_Backward_Pass(double* backward_input, double* forward_input, size_t batch_size, size_t neurons) {
+__global__ static void Cuda_Rectified_Linear_Activation_Backward_Pass(double* backward_input, double* forward_input, size_t batch_size, size_t neurons) {
 
 	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -95,7 +94,7 @@ __global__ void Cuda_Rectified_Linear_Activation_Backward_Pass(double* backward_
 	}
 }
 
-__global__ void Cuda_Partial_Derivitive_of_Loss(double* backward_input, double* weights, double* prev_layer_backward_input, size_t batch_size, size_t inputs, size_t neurons) {
+__global__ static void Cuda_Partial_Derivitive_of_Loss(double* backward_input, double* weights, double* prev_layer_backward_input, size_t batch_size, size_t inputs, size_t neurons) {
 	
 	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t input_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -115,6 +114,9 @@ dense_layer::dense_layer() {
 	weights = nullptr;
 	bias = nullptr;
 	forward_output = nullptr;
+	backward_input = nullptr;
+	d_weights = nullptr;
+	d_bias = nullptr;
 	layer_activation_function = activation_functions::Linear;
 }
 
@@ -133,8 +135,8 @@ dense_layer::dense_layer(size_t _inputs, size_t _neurons) {
 	forward_output = nullptr;
 	backward_input = nullptr;
 
-	if (bias == nullptr || weights == nullptr) {
-		std::cerr << "Error: Could not allocate memory for layer" << std::endl;
+	if (bias == nullptr || weights == nullptr || d_weights == nullptr || d_bias == nullptr) {
+		std::cerr << "Error: Could not allocate memory in dense_layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
 
@@ -149,7 +151,9 @@ dense_layer::dense_layer(size_t _inputs, size_t _neurons) {
 
 dense_layer::~dense_layer() {
 	free(weights);
+	free(d_weights);
 	free(bias);
+	free(d_bias);
 	free(forward_output);
 	free(backward_input);
 }
@@ -163,7 +167,7 @@ void dense_layer::forward(const std::vector<std::vector<double>>& batched_inputs
 		exit(EXIT_FAILURE);
 	}
 
-	for (int i = 0; i < batched_inputs.size(); i++) {
+	for (size_t i = 0; i < batched_inputs.size(); i++) {
 
 		if (batched_inputs[i].size() != inputs) {
 			std::cerr << "Error: batched_inputs of invalid shape" << std::endl;
@@ -394,11 +398,11 @@ void dense_layer::init_back_propigation(const std::vector<std::vector<std::vecto
 	exit(EXIT_FAILURE);
 }
 
-void dense_layer::init_back_propigation(double* batched_targets, size_t input_size, size_t _batch_size) {
+void dense_layer::init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) {
 	
 	//probally not worth it too load this into a kenral but were going to do it anyway.
 
-	if (batch_size != _batch_size || input_size != neurons) {
+	if (batch_size != _batch_size || _input_size != neurons) {
 		std::cerr << "Error: Invalid input size for dense layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
@@ -522,9 +526,9 @@ void dense_layer::backward(const std::vector<std::vector<std::vector<std::vector
 	exit(EXIT_FAILURE);
 }
 
-void dense_layer::backward(double* batched_inputs, size_t input_size, size_t _batch_size) {
+void dense_layer::backward(double* batched_inputs, size_t _input_size, size_t _batch_size) {
 
-	if (_batch_size != batch_size || input_size != inputs) {
+	if (_batch_size != batch_size || _input_size != inputs) {
 		std::cerr << "Error: Invalid input size for backward pass" << std::endl;
 	}
 
@@ -733,4 +737,15 @@ void dense_layer::backward(layer* prev_layer) {
 	cudaFree(cuda_prev_layer_backward_input);
 	cudaFree(cuda_weights);
 	cudaFree(cuda_backward_input);
+}
+
+void dense_layer::update_paramters(double learning_rate) {
+
+	for (size_t i = 0; i < neurons * inputs; i++) {
+		weights[i] -= d_weights[i] * learning_rate;
+	}
+
+	for (size_t i = 0; i < neurons; i++) {
+		bias[i] -= d_bias[i] * learning_rate;
+	}
 }

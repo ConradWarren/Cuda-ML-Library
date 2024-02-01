@@ -83,6 +83,7 @@
     <ClInclude Include="layer.hpp" />
   </ItemGroup>
   <ItemGroup>
+    <CudaCompile Include="convolutional_layer.cu" />
     <CudaCompile Include="dense_layer.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -102,18 +102,10 @@ public:
 	void virtual init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) override;
 	void virtual init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) override;
 
-	void virtual backward(const std::vector<std::vector<double>>& batched_inputs) override {
-
-	}
-	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override {
-
-	}
-	void virtual backward(double* batched_inputs, size_t _input_size, size_t _batch_size) override {
-
-	}
-	void virtual backward(layer* prev_layer) override {
-
-	}
+	void virtual backward(const std::vector<std::vector<double>>& batched_inputs) override;
+	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override;
+	void virtual backward(double* batched_inputs, size_t _input_size, size_t _batch_size) override;
+	void virtual backward(layer* prev_layer) override;
 
 	void virtual update_paramters(double learning_rate) override {
 

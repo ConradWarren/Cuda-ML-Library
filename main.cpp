@@ -25,23 +25,30 @@ void Print_Forward_Output(double* arr, size_t batch_size, size_t neurons) {
 int main(void) {
 
 	std::vector<std::vector<std::vector<std::vector<double>>>> batched_inputs = { {{ {1,1,1,1}, {1,1,1,1}, {1,1,1,1}, {1,1,1,1} }, { {1,1,1,1}, {1,1,1,1}, {1,1,1,1}, {1,1,1,1} }}, {{ {2,2,2,2}, {2,2,2,2}, {2,2,2,2}, {2,2,2,2} }, { {2,2,2,2}, {2,2,2,2}, {2,2,2,2}, {2,2,2,2} }} };
-	std::vector<std::vector<double>> batched_targets_2d = { {5,5,5,5,5,5,5,5}, {10,10,10,10, 10,10,10,10} };
-	std::vector<std::vector<std::vector<std::vector<double>>>> batched_targets_4d = { {{{5, 5}, {5,5}}, {{5, 5}, {5, 5}}}, {{{10, 10}, {10,10}}, {{10, 10}, {10, 10}}} };
+	//std::vector<std::vector<double>> batched_targets_2d = { {5,5,5,5,5,5,5,5}, {10,10,10,10, 10,10,10,10} };
+	std::vector<std::vector<std::vector<std::vector<double>>>> batched_targets_4d = { {{{1}}}, {{{1}}} };
 
 
 	convolutional_layer layer_1(4, 2, 2, 2, 2, 0);
-	
+	convolutional_layer layer_2(2, 2, 1, 2, 1, 0);
+
+
 	layer_1.forward(batched_inputs);
-	layer_1.init_back_propigation(batched_targets_4d);
+	layer_2.forward(&layer_1);
+	layer_2.init_back_propigation(batched_targets_4d);
+	layer_2.backward(&layer_1);
+
+	Print_Forward_Output(layer_2.d_weights, 4, 2);
 	
-	Print_Forward_Output(layer_1.forward_output, 2, 2);
-	Print_Forward_Output(layer_1.backward_input, 2, 2);
-	Print_Forward_Output(layer_1.forward_output + 4, 2, 2);
-	Print_Forward_Output(layer_1.backward_input + 4, 2, 2);
-	Print_Forward_Output(layer_1.forward_output + 8, 2, 2);
-	Print_Forward_Output(layer_1.backward_input + 8, 2, 2);
-	Print_Forward_Output(layer_1.forward_output + 12, 2, 2);
-	Print_Forward_Output(layer_1.backward_input + 12, 2, 2);
+
+	/*
+	* layer_2 kernal_1 
+	{0 = > 555324, 1 = > 431984} // 0 => 308646, 1 => 308646
+	{2 = > 431984, 3 = > 308644} // 2 => 308646, 3 => 308646
+	{4 = > 1.84006e+06, 5 = > 1.4304e+06} 4 => 1.02076e+06, 5 => 1.02076e+06
+	{6 = > 1.4304e+06, 7 = > 1.02073e+06} 6 => 1.02076e+06, 7 => 1.02076e+06
+	
+	*/
 
 	return 0;
 }

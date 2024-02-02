@@ -18,13 +18,13 @@ __global__ static void Cuda_Dense_Layer_Forward_Pass(double* batched_inputs, dou
 	}
 }
 
-__global__ static void Cuda_Init_Back_Propigation(double* batched_targets, double* forward_ouput, double* backward_input, size_t batch_size, size_t neurons) {
+__global__ static void Cuda_Dense_Layer_Init_Back_Propigation(double* batched_targets, double* forward_ouput, double* backward_input, size_t batch_size, size_t neurons) {
 
 	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
 	if (batch_idx < batch_size && neuron_idx < neurons) {
-		backward_input[batch_idx * neurons + neuron_idx] = 2.0 * (forward_ouput[batch_idx * neurons + neuron_idx]) / (batch_size * neurons);
+		backward_input[batch_idx * neurons + neuron_idx] = 2.0 * (forward_ouput[batch_idx * neurons + neuron_idx] - batched_targets[batch_idx * neurons + neuron_idx]) / (double)(batch_size * neurons);
 	}
 }
 
@@ -60,7 +60,7 @@ __global__ static void Cuda_Sigmoid_Activation_Forward_Pass(double* forward_outp
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
 	if (batch_idx < batch_size && neuron_idx < neurons) {
-		forward_output[batch_idx * neurons + neuron_idx] = 1.0 / (1.0 + std::powf(2.71828182846, -forward_output[batch_idx * neurons + neurons]));
+		forward_output[batch_idx * neurons + neuron_idx] = 1.0 / (1.0 + std::powf(2.71828182846, -forward_output[batch_idx * neurons + neuron_idx]));
 	}
 }
 
@@ -268,12 +268,6 @@ void dense_layer::forward(double* batched_inputs, size_t _input_size, size_t _ba
 		exit(error_code);
 	}
 
-	error_code = cudaDeviceSynchronize();
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
-		exit(error_code);
-	}
-
 	if (layer_activation_function == activation_functions::Sigmoid) {
 		Cuda_Sigmoid_Activation_Forward_Pass<<<blocks, threads>>>(cuda_forward_output, batch_size, neurons);
 	}
@@ -286,8 +280,9 @@ void dense_layer::forward(double* batched_inputs, size_t _input_size, size_t _ba
 		exit(error_code);
 	}
 
-	if (layer_activation_function != activation_functions::Linear && (error_code = cudaDeviceSynchronize()) != cudaError::cudaSuccess) {
-		std::cerr << "Error : cudaDeciveSynchronize failed" << std::endl;
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
 
@@ -431,7 +426,7 @@ void dense_layer::init_back_propigation(double* batched_targets, size_t _input_s
 		std::cerr << "Error: cudaMalloc failed" << std::endl;
 		exit(error_code);
 	}
-
+	 
 	error_code = cudaMalloc((void**)&cuda_forward_output, batch_size * neurons * sizeof(double));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMalloc failed" << std::endl;
@@ -453,11 +448,11 @@ void dense_layer::init_back_propigation(double* batched_targets, size_t _input_s
 	dim3 blocks(block_size, block_size);
 	dim3 threads(16, 16);
 
-	Cuda_Init_Back_Propigation<<<blocks, threads>>>(cuda_batched_targets, cuda_forward_output, cuda_backward_input, batch_size, neurons);
+	Cuda_Dense_Layer_Init_Back_Propigation<<<blocks, threads>>>(cuda_batched_targets, cuda_forward_output, cuda_backward_input, batch_size, neurons);
 	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: Failed to launch kernal" << std::endl;
+		std::cerr << "Error: Failed to launch init back propigation kernal in dense_layer" << std::endl;
 		exit(error_code);
 	}
 

@@ -585,7 +585,7 @@ void dense_layer::backward(double* batched_inputs, size_t _input_size, size_t _b
 		exit(error_code);
 	}
 	
-	Cuda_Dense_Layer_Second_Backward_Pass<<<blocks, threads>>>(cuda_backward_inputs, cuda_d_bias, batch_size, neurons);
+	Cuda_Dense_Layer_Second_Backward_Pass<<<neurons/16 + 1, 16>>>(cuda_backward_inputs, cuda_d_bias, batch_size, neurons);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {

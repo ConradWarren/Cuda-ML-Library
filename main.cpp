@@ -21,32 +21,40 @@ void Print_Forward_Output(double* arr, size_t batch_size, size_t neurons) {
 //Implement Softmax + do math
 //Implement auto flattening / de-flattening
 //Rename Loss functions / Init_Loss functions to proper names. Cross_Entropy_Mean_Loss ect. 
+//Optimize kernals (specifically the inputs).
+//Need to test second backward pass in dense_layer. 99% sure error has been fixed but needs to be checked.
 
 int main(void) {
 
 	std::vector<std::vector<std::vector<std::vector<double>>>> batched_inputs = { {{ {1,1,1,1}, {1,1,1,1}, {1,1,1,1}, {1,1,1,1} }, { {1,1,1,1}, {1,1,1,1}, {1,1,1,1}, {1,1,1,1} }}, {{ {2,2,2,2}, {2,2,2,2}, {2,2,2,2}, {2,2,2,2} }, { {2,2,2,2}, {2,2,2,2}, {2,2,2,2}, {2,2,2,2} }} };
-	//std::vector<std::vector<double>> batched_targets_2d = { {5,5,5,5,5,5,5,5}, {10,10,10,10, 10,10,10,10} };
-	std::vector<std::vector<std::vector<std::vector<double>>>> batched_targets_4d = { {{{1}}}, {{{1}}} };
+	std::vector<std::vector<double>> batched_targets_2d = { {5,5,5,5,5,5,5,5}, {10,10,10,10, 10,10,10,10} };
+	std::vector<std::vector<std::vector<std::vector<double>>>> batched_targets_4d = { { {{5, 5}, {5, 5}}, {{5, 5}, {5, 5}} }, {{{10, 10}, {10, 10}}, {{10, 10}, {10, 10}}} };
+	//std::vector<std::vector<std::vector<std::vector<double>>>> batched_targets_4d = { {{{1}}}, {{{1}}} };
 
+	std::cout << batched_targets_4d.size() << '\n';
+	std::cout << batched_targets_2d.size() << '\n';
 
 	convolutional_layer layer_1(4, 2, 2, 2, 2, 0);
 	convolutional_layer layer_2(2, 2, 1, 2, 1, 0);
 
 
 	layer_1.forward(batched_inputs);
-	layer_2.forward(&layer_1);
-	layer_2.init_back_propigation(batched_targets_4d);
-	layer_2.backward(&layer_1);
+	std::cout << layer_1.loss(batched_targets_2d) << '\n';
+	std::cout << layer_1.loss(batched_targets_4d) << '\n';
+	layer_1.init_back_propigation(batched_targets_2d);
+	layer_1.backward(batched_inputs);
 
-	Print_Forward_Output(layer_2.d_weights, 4, 2);
-	
+	Print_Forward_Output(layer_1.d_weights, 2, 4);
+	Print_Forward_Output(layer_1.d_weights + 8, 2, 4);
+	Print_Forward_Output(layer_1.d_bias, 1, 2);
+
 
 	/*
-	* layer_2 kernal_1 
-	{0 = > 555324, 1 = > 431984} // 0 => 308646, 1 => 308646
-	{2 = > 431984, 3 = > 308644} // 2 => 308646, 3 => 308646
-	{4 = > 1.84006e+06, 5 = > 1.4304e+06} 4 => 1.02076e+06, 5 => 1.02076e+06
-	{6 = > 1.4304e+06, 7 = > 1.02073e+06} 6 => 1.02076e+06, 7 => 1.02076e+06
+	{0 = > 3.13872e+66, 1 = > 3.13872e+66, 2 = > 3.13872e+66, 3 = > 3.13872e+66}
+	{4 = > 3.13872e+66, 5 = > 3.13872e+66, 6 = > 3.13872e+66, 7 = > 3.13872e+66}
+
+	{0 = > 6.27744e+66, 1 = > 6.27744e+66, 2 = > 6.27744e+66, 3 = > 6.27744e+66}
+	{4 = > 6.27744e+66, 5 = > 6.27744e+66, 6 = > 6.27744e+66, 7 = > 6.27744e+66}
 	
 	*/
 

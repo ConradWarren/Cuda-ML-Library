@@ -181,8 +181,39 @@ void dense_layer::forward(const std::vector<std::vector<double>>& batched_inputs
 	free(input_arr);
 }
 void dense_layer::forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) {
-	std::cerr << "Error: auto flattening not currently supported" << std::endl;
-	exit(EXIT_FAILURE);
+	
+	double* input_arr = (double*)malloc(batched_inputs.size() * inputs * sizeof(double));
+	unsigned int current_size = 0;
+
+	if (input_arr == nullptr) {
+		std::cerr << "Error: Batched_inputs of incompatible input shape" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	for (int i = 0; i < batched_inputs.size(); i++) {
+		for (int j = 0; j < batched_inputs[j].size(); j++) {
+			for (int y = 0; y < batched_inputs[i][j].size(); y++) {
+
+				if (current_size + batched_inputs[i][j][y].size() > inputs) {
+					std::cerr << "Error: Batched_inputs of incompatible input shape" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+
+				memcpy(input_arr + i * inputs + current_size, batched_inputs[i][j][y].data(), batched_inputs[i][j][y].size() * sizeof(double));
+
+				current_size += batched_inputs[i][j][y].size();
+			}
+		}
+
+		if (current_size != inputs) {
+			std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		current_size = 0;
+	}
+	
+	forward(input_arr, inputs, batch_size);
+	free(input_arr);
 }
 
 void dense_layer::forward(double* batched_inputs, size_t _input_size, size_t _batch_size) {
@@ -256,8 +287,8 @@ void dense_layer::forward(double* batched_inputs, size_t _input_size, size_t _ba
 		exit(error_code);
 	}
 	
-	int block_size = (batch_size > neurons) ? ((int)batch_size + 16 - 1) / 16 : ((int)neurons + 16 - 1) / 16;
-	dim3 blocks(block_size, block_size);
+	
+	dim3 blocks(neurons/16 + 1, batch_size/16 + 1);
 	dim3 threads(16, 16);
 
 	Cuda_Dense_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_inputs, cuda_weights, cuda_bias, cuda_forward_output, inputs, neurons, batch_size);
@@ -299,11 +330,6 @@ void dense_layer::forward(double* batched_inputs, size_t _input_size, size_t _ba
 }
 
 void dense_layer::forward(const layer* prev_layer) {
-
-	if (prev_layer->neurons != inputs) {
-		std::cerr << "Error: dense_layer of incomptibale shape with connected layer" << std::endl;
-		exit(EXIT_FAILURE);
-	}
 
 	forward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);
 }
@@ -355,15 +381,47 @@ double dense_layer::loss(const std::vector<int>& batched_targets) const {
 	return 0;
 }
 double dense_layer::loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const {
-	std::cerr << "Error: auto flattening not currently supported" << std::endl;
-	exit(EXIT_FAILURE);
-	return 0;
+	
+	if (batched_targets.size() != batch_size) {
+		std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	double result = 0.0;
+	int idx = 0;
+
+	for (int i = 0; i < batch_size; i++) {
+
+		for (int j = 0; j < batched_targets[i].size(); j++) {
+			for (int y = 0; y < batched_targets[i][j].size(); y++) {
+
+				if (idx + batched_targets[i][j][y].size() > neurons) {
+					std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+
+				for (int x = 0; x < batched_targets[i][j][y].size(); x++) {
+					result += (forward_output[batch_size * neurons + idx] - batched_targets[i][j][y][x]) * (forward_output[batch_size * neurons + idx] - batched_targets[i][j][y][x]) / (double)(batch_size * neurons);
+					idx++;
+				}
+			}
+		}
+
+		if (idx != neurons) {
+			std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+
+		idx = 0;
+	}
+
+	return result;
 }
 
 void dense_layer::init_back_propigation(const std::vector<std::vector<double>>& batched_targets) {
 	
 	if (batched_targets.size() != batch_size) {
-		std::cerr << "Error: Incompatible batch size" << std::endl;
+		std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
 		exit(EXIT_FAILURE);
 	}
 
@@ -389,8 +447,48 @@ void dense_layer::init_back_propigation(const std::vector<std::vector<double>>& 
 }
 
 void dense_layer::init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) {
-	std::cerr << "Error: auto flattening not currently supported" << std::endl;
-	exit(EXIT_FAILURE);
+	
+	if (batched_targets.size() != batch_size) {
+		std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	double* input_arr = (double*)malloc(batch_size * neurons * sizeof(double));
+	unsigned int current_size = 0;
+	
+	if (input_arr == nullptr) {
+		std::cerr << "Error: Could not allocate memory for backpropigation in dense_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	for (int i = 0; i < batch_size; i++) {
+
+		for (int j = 0; j < batched_targets[i].size(); j++) {
+
+			for (int y = 0; y < batched_targets[i][j].size(); y++) {
+
+				if (current_size + batched_targets[i][j][y].size() > neurons) {
+					std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+				
+				memcpy(input_arr + i * neurons +  current_size, batched_targets[i][j][y].data(), batched_targets[i][j][y].size() * sizeof(double));
+
+				current_size += batched_targets[i][j][y].size();
+			}
+		}
+
+		if (current_size != neurons) {
+			std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+
+		current_size = 0;
+	}
+
+	init_back_propigation(input_arr, neurons, batch_size);
+
+	free(input_arr);
 }
 
 void dense_layer::init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) {
@@ -444,8 +542,7 @@ void dense_layer::init_back_propigation(double* batched_targets, size_t _input_s
 		exit(error_code);
 	}
 
-	int block_size = (batch_size > neurons) ? ((int)batch_size + 16 - 1) / 16 : ((int)neurons + 16 - 1) / 16;
-	dim3 blocks(block_size, block_size);
+	dim3 blocks(neurons/16 + 1, batch_size/16 + 1);
 	dim3 threads(16, 16);
 
 	Cuda_Dense_Layer_Init_Back_Propigation<<<blocks, threads>>>(cuda_batched_targets, cuda_forward_output, cuda_backward_input, batch_size, neurons);
@@ -517,8 +614,45 @@ void dense_layer::backward(const std::vector<std::vector<double>>& batched_input
 }
 
 void dense_layer::backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) {
-	std::cerr << "Error: Auto flattening not currently suported" << std::endl;
-	exit(EXIT_FAILURE);
+	
+	if (batched_inputs.size() != batch_size) {
+		std::cerr << "Error: Batched_inputs of incompatible input shape" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	double* input_arr = (double*)malloc(batch_size * inputs * sizeof(double));
+	unsigned int current_size = 0;
+
+	if (input_arr == nullptr) {
+		std::cerr << "Error: Unable to allocate memory in dense layer for backward pass" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	for (int i = 0; i < batch_size; i++) {
+
+		for (int j = 0; j < batched_inputs[i].size(); j++) {
+			for (int y = 0; y < batched_inputs[i][j].size(); y++) {
+
+				if (current_size + batched_inputs[i][j][y].size() > inputs) {
+					std::cerr << "Error: Batched_inputs of incompatible input shape" << std::endl;
+					exit(EXIT_FAILURE);
+				}
+
+				memcpy(input_arr + i * inputs + current_size, batched_inputs[i][j][y].data(), batched_inputs[i][j][y].size());
+
+				current_size += batched_inputs[i][j][y].size();
+			}
+		}
+
+		if (current_size != inputs) {
+			std::cerr << "Error: Batched_inputs of incompatible input shape" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		current_size = 0;
+	}
+
+	backward(input_arr, inputs, batch_size);
+	free(input_arr);
 }
 
 void dense_layer::backward(double* batched_inputs, size_t _input_size, size_t _batch_size) {

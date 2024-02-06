@@ -118,10 +118,6 @@ __global__ static void Cuda_Convolution_Layer_Partial_Derivitive_of_Loss(double*
 		int position_y_idx = position_idx / input_size;
 		int position_x_idx = position_idx % input_size;
 		prev_layer_backward_input[idx] = 0.0;
-
-		if (idx == 11) {
-			printf("position: %d, %d\n", position_y_idx, position_x_idx);
-		}
 		
 		for (int y = 0; y < kernal_size; y++) {
 			
@@ -137,9 +133,7 @@ __global__ static void Cuda_Convolution_Layer_Partial_Derivitive_of_Loss(double*
 
 				int output_y = (position_y_idx - y + padding) / stride;
 				int output_x = (position_x_idx - x + padding) / stride;
-				if (idx == 11) {
-					printf("%d, %d => %d, %d\n", y, x, output_y, output_x);
-				}
+				
 				for (int i = 0; i < kernals; i++) {
 					prev_layer_backward_input[idx] += weights[i * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + y * kernal_size + x] * backward_input[batch_idx * kernals * output_size * output_size + i * output_size * output_size + output_y * output_size + output_x];
 				}	
@@ -966,11 +960,3 @@ void convolutional_layer::backward(layer* prev_layer) {
 	cudaFree(cuda_prev_layer_backward_input);
 	if (cuda_prev_layer_forward_output != nullptr) cudaFree(cuda_prev_layer_forward_output);
 }
-
-
-
-
-
-
-
-

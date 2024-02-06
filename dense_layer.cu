@@ -120,12 +120,12 @@ dense_layer::dense_layer() {
 	layer_activation_function = activation_functions::Linear;
 }
 
-dense_layer::dense_layer(size_t _inputs, size_t _neurons) {
+dense_layer::dense_layer(size_t _inputs, size_t _neurons, activation_functions _layer_activation_function) {
 
 	neurons = _neurons;
 	inputs = _inputs;
 	batch_size = 0;
-	layer_activation_function = activation_functions::Linear;
+	layer_activation_function = _layer_activation_function;
 
 	weights = (double*)malloc(inputs * neurons * sizeof(double));
 	bias = (double*)malloc(neurons * sizeof(double));

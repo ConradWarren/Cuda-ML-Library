@@ -46,7 +46,7 @@ public:
 	double* d_bias;
 	
 	dense_layer();
-	dense_layer(size_t _inputs, size_t _neurons);
+	dense_layer(size_t _inputs, size_t _neurons, activation_functions _layer_activation_function);
 	~dense_layer();
 
 	void virtual forward(const std::vector<std::vector<double>>& batched_inputs) override;
@@ -86,7 +86,7 @@ public:
 	size_t output_size;
 
 	convolutional_layer();
-	convolutional_layer(size_t _input_size, size_t _channels, size_t _kernals, size_t _kernal_size, size_t _stride, size_t _padding);
+	convolutional_layer(size_t _input_size, size_t _channels, size_t _kernals, size_t _kernal_size, size_t _stride, size_t _padding, activation_functions _layer_activation_function);
 	~convolutional_layer();
 
 	void virtual forward(const std::vector<std::vector<double>>& batched_inputs) override;
@@ -107,8 +107,40 @@ public:
 	void virtual backward(double* batched_inputs, size_t _input_size, size_t _batch_size) override;
 	void virtual backward(layer* prev_layer) override;
 
-	void virtual update_paramters(double learning_rate) override {
-
-	}
+	void virtual update_paramters(double learning_rate) override;
 };
 
+class max_pooling_layer : public layer {
+
+
+public:
+	size_t input_size;
+	size_t channels;
+	size_t kernal_size;
+	size_t stride;
+	size_t output_size; 
+
+	max_pooling_layer();
+	max_pooling_layer(size_t _input_size, size_t _channels, size_t _kernal_size, size_t stride);
+	~max_pooling_layer();
+
+	void virtual forward(const std::vector<std::vector<double>>& batched_inputs) override;
+	void virtual forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override;
+	void virtual forward(double* batched_inputs, size_t _input_size, size_t _batch_size) override;
+	void virtual forward(const layer* prev_layer) override;
+
+	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
+	double virtual loss(const std::vector<int>& batched_targets) const override;
+	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;
+
+	void virtual init_back_propigation(const std::vector<std::vector<double>>& batched_targets) override;
+	void virtual init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) override;
+	void virtual init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) override;
+
+	void virtual backward(const std::vector<std::vector<double>>& batched_inputs) override;
+	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override;
+	void virtual backward(double* batched_inputs, size_t _input_size, size_t _batch_size) override;
+	void virtual backward(layer* prev_layer) override;
+
+	void virtual update_paramters(double learning_rate) override;
+};

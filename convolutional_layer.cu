@@ -201,7 +201,7 @@ convolutional_layer::convolutional_layer() {
 	inputs = 0;
 }
 
-convolutional_layer::convolutional_layer(size_t _input_size, size_t _channels, size_t _kernals, size_t _kernal_size, size_t _stride, size_t _padding) {
+convolutional_layer::convolutional_layer(size_t _input_size, size_t _channels, size_t _kernals, size_t _kernal_size, size_t _stride, size_t _padding, activation_functions _layer_activation_function) {
 
 	kernals = _kernals;
 	kernal_size = _kernal_size;
@@ -222,7 +222,7 @@ convolutional_layer::convolutional_layer(size_t _input_size, size_t _channels, s
 
 	forward_output = nullptr;
 	backward_input = nullptr;
-	layer_activation_function = activation_functions::Linear;
+	layer_activation_function = _layer_activation_function;
 
 	if (weights == nullptr || d_weights == nullptr || bias == nullptr || d_bias == nullptr) {
 		std::cerr << "Error: Could not allocate memory in convolutional layer" << std::endl;
@@ -959,4 +959,16 @@ void convolutional_layer::backward(layer* prev_layer) {
 	cudaFree(cuda_backward_input);
 	cudaFree(cuda_prev_layer_backward_input);
 	if (cuda_prev_layer_forward_output != nullptr) cudaFree(cuda_prev_layer_forward_output);
+}
+
+void convolutional_layer::update_paramters(double learning_rate) {
+
+	for (int i = 0; i < kernals * channels * kernal_size * kernal_size; i++) {
+		weights[i] -= d_weights[i] * learning_rate;
+	}
+	
+	for (int i = 0; i < kernals; i++) {
+		bias[i] -= d_bias[i] * learning_rate;
+	}
+
 }

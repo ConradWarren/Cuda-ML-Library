@@ -85,6 +85,7 @@
   <ItemGroup>
     <CudaCompile Include="convolutional_layer.cu" />
     <CudaCompile Include="dense_layer.cu" />
+    <CudaCompile Include="pooling_layer.cu" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

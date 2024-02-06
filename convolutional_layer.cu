@@ -75,7 +75,7 @@ __global__ static void Cuda_Convolutional_Layer_First_Backward_Pass(double* batc
 				}
 			}
 		}
-		//d_weights[idx] = 12.0;
+		
 	}
 }
 
@@ -106,18 +106,45 @@ __global__ static void Cuda_Convolutional_Layer_Init_Back_Propigation(double* ba
 }
 
 __global__ static void Cuda_Convolution_Layer_Partial_Derivitive_of_Loss(double* backward_input, double* weights, double* prev_layer_backward_input,
-													size_t batch_size, size_t kernals, size_t channels, size_t kernal_size, size_t input_size, size_t padding, size_t stride) {
+												size_t batch_size, size_t kernals, size_t channels, size_t kernal_size, size_t input_size, size_t padding, size_t stride, size_t output_size) {
 	
 	size_t batch_idx = blockIdx.x * blockDim.x + threadIdx.x;
 	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
 	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
 
-	if (batch_idx < batch_size && channel_idx < channels && position_idx < input_size * input_size) {
+	if (batch_idx < batch_size && channel_idx < channels && position_idx < (input_size * input_size)) {
 
-		prev_layer_backward_input[batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + position_idx] = 0.0;
+		int idx = batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + position_idx;
+		int position_y_idx = position_idx / input_size;
+		int position_x_idx = position_idx % input_size;
+		prev_layer_backward_input[idx] = 0.0;
 
-		// Equal to the sum of backward_input (output shape) * coesponding weight that created that output. 
+		if (idx == 11) {
+			printf("position: %d, %d\n", position_y_idx, position_x_idx);
+		}
+		
+		for (int y = 0; y < kernal_size; y++) {
+			
+			if ((int)(position_y_idx - y + (int)padding) < 0 || position_y_idx + (int)kernal_size - 1 - y >= (int)input_size + (int)padding ||(int)(position_y_idx - y + (int)padding) % stride != 0) {
+				continue;
+			}
+			
+			for (int x = 0; x < kernal_size; x++) {
 
+				if ((int)(position_x_idx - x + (int)padding) < 0 || position_x_idx + (int)kernal_size - 1 - x >= (int)input_size + (int)padding ||(int)(position_x_idx - x + (int)padding) % stride != 0) {
+					continue;
+				}
+
+				int output_y = (position_y_idx - y + padding) / stride;
+				int output_x = (position_x_idx - x + padding) / stride;
+				if (idx == 11) {
+					printf("%d, %d => %d, %d\n", y, x, output_y, output_x);
+				}
+				for (int i = 0; i < kernals; i++) {
+					prev_layer_backward_input[idx] += weights[i * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + y * kernal_size + x] * backward_input[batch_idx * kernals * output_size * output_size + i * output_size * output_size + output_y * output_size + output_x];
+				}	
+			}
+		}
 	}
 }
 
@@ -797,12 +824,52 @@ void convolutional_layer::backward(layer* prev_layer) {
 
 	if (prev_layer->backward_input == nullptr) {
 
-		prev_layer->backward_input = (double*)malloc(batch_size * input_size * sizeof(double));
+		prev_layer->backward_input = (double*)malloc(batch_size * inputs * sizeof(double));
 		if (prev_layer->backward_input == nullptr) {
 			std::cerr << "Error: Could not allocate memory for backpropigation" << std::endl;
 			exit(EXIT_FAILURE);
 		}
+		memset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
 	}
+	/*
+	for (int batch_num = 0; batch_num < batch_size; batch_num++) {
+		int output_y = 0;
+		for (int y = 0 - padding; y < input_size - kernal_size + 1 + padding; y += stride) {
+			int output_x = 0;
+
+			for (int x = 0 - padding; x < input_size - kernal_size + 1 + padding; x += stride) {
+
+				for (int a = 0; a < kernal_size; a++) {
+
+					if (y + a < 0 || y + a >= input_size) {
+						continue;
+					}
+
+					for (int b = 0; b < kernal_size; b++) {
+
+						if (x + b < 0 || x + b >= input_size) {
+							continue;
+						}
+
+						for (int channel_idx = 0; channel_idx < channels; channel_idx++) {
+
+							for (int kernal_idx = 0; kernal_idx < kernals; kernal_idx++) {
+
+								prev_layer->backward_input[batch_num * inputs + channel_idx * input_size * input_size + (y + a) * input_size + (x + b)] += backward_input[batch_num * neurons + kernal_idx * output_size * output_size + output_y * output_size + output_x] * weights[kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + a * kernal_size + b];
+
+							}
+
+						}
+					}
+				}
+				output_x++;
+			}
+			output_y++;
+		}
+
+	}
+	return;
+	*/
 
 	double* cuda_weights = nullptr;
 	double* cuda_backward_input = nullptr;
@@ -810,19 +877,19 @@ void convolutional_layer::backward(layer* prev_layer) {
 	double* cuda_prev_layer_forward_output = nullptr;
 	cudaError error_code;
 
-	error_code = cudaMalloc((void**)cuda_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
+	error_code = cudaMalloc((void**)&cuda_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMalloc failed" << std::endl;
 		exit(error_code);
 	}
 
-	error_code = cudaMalloc((void**)cuda_backward_input, batch_size * neurons * sizeof(double));
+	error_code = cudaMalloc((void**)&cuda_backward_input, batch_size * neurons * sizeof(double));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMalloc failed" << std::endl;
 		exit(error_code);
 	}
 
-	error_code = cudaMalloc((void**)cuda_prev_layer_backward_input, batch_size * inputs * sizeof(double));
+	error_code = cudaMalloc((void**)&cuda_prev_layer_backward_input, batch_size * inputs * sizeof(double));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMalloc failed" << std::endl;
 		exit(error_code);
@@ -839,15 +906,18 @@ void convolutional_layer::backward(layer* prev_layer) {
 		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
 		exit(error_code);
 	}
-
-	//kernal call goes here.
-
+	
+	dim3 blocks(batch_size/6 + 1, channels/6 + 1, (input_size * input_size)/6 + 1);
+	dim3 threads(6, 6, 6);
+	
+	Cuda_Convolution_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_backward_input, cuda_weights, cuda_prev_layer_backward_input, batch_size, kernals, channels, kernal_size, input_size, padding, stride, output_size);
+	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: Failed to launch partial derivitive of loss kernal" << std::endl;
 		exit(error_code);
 	}
-
+	
 	if (prev_layer->layer_activation_function != activation_functions::Linear) {
 
 		error_code = cudaMalloc((void**)cuda_prev_layer_forward_output, batch_size * inputs * sizeof(double));
@@ -862,7 +932,15 @@ void convolutional_layer::backward(layer* prev_layer) {
 			exit(error_code);
 		}
 
-		//backward activation function calls go here.
+		dim3 blocks_2d(batch_size/16 + 1, inputs/16 + 1);
+		dim3 threads_2d(16, 16);
+
+		if (layer_activation_function == activation_functions::Sigmoid) {
+			Cuda_Sigmoid_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
+		}
+		else if (layer_activation_function == activation_functions::Rectified_Linear) {
+			Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
+		}
 
 		error_code = cudaGetLastError();
 		if (error_code != cudaError::cudaSuccess) {
@@ -876,7 +954,7 @@ void convolutional_layer::backward(layer* prev_layer) {
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-
+	
 	error_code = cudaMemcpy(prev_layer->backward_input, cuda_prev_layer_backward_input, batch_size * inputs * sizeof(double), cudaMemcpyDeviceToHost);
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;

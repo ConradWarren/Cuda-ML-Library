@@ -4,6 +4,30 @@
 
 #include <iostream>
 
+__global__ static void Cuda_Max_Pooling_Layer_Forward_Pass(double* batched_inputs, double* forward_output, 
+													size_t batch_size, size_t channels, size_t input_size, size_t kernal_size, size_t output_size, size_t stride) {
+	
+	size_t batch_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
+
+	if (batch_idx < batch_size && channel_idx < channels && position_idx < (output_size * output_size)) {
+
+		int idx = batch_idx * channels * output_size * output_size + channel_idx * output_size * output_size + position_idx;
+		int input_position_y = (position_idx / output_size) * stride;
+		int input_position_x = (position_idx % output_size) * stride;
+
+		forward_output[idx] = batched_inputs[batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + input_position_y * input_size + input_position_x];
+		
+		for (int i = 0; i < kernal_size; i++) {
+			for (int j = 0; j < kernal_size; j++) {
+				if (batched_inputs[batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + (input_position_y + i) * input_size + (input_position_x + j)] > forward_output[idx]) {
+					forward_output[idx] = batched_inputs[batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + (input_position_y + i) * input_size + (input_position_x + j)];
+				}
+			}
+		}
+	}
+}
 
 max_pooling_layer::max_pooling_layer() {
 	batch_size = 0;
@@ -146,9 +170,31 @@ void max_pooling_layer::forward(double* batched_inputs, size_t _input_size, size
 		exit(error_code);
 	}
 
-	//kernal call goes here.
+	dim3 blocks(batch_size / 6 + 1, channels / 6 + 1, (output_size * output_size) / 6 + 1);
+	dim3 threads(6, 6, 6);
 
-	
+	Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to lauch forward pass kernal in max_pooling_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudDeviceSynchronize failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(forward_output, cuda_forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
+		exit(error_code);
+	}
+
+	cudaFree(cuda_forward_output);
+	cudaFree(cuda_batched_input);
 }
 void max_pooling_layer::forward(const layer* prev_layer) {
 	forward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);

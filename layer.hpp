@@ -3,6 +3,7 @@
 #include <vector>
 
 enum class activation_functions{Linear ,Rectified_Linear, Sigmoid, Softmax};
+enum class pooling_type{Max, Average};
 
 class layer {
 
@@ -110,7 +111,7 @@ public:
 	void virtual update_paramters(double learning_rate) override;
 };
 
-class max_pooling_layer : public layer {
+class pooling_layer : public layer {
 
 
 public:
@@ -118,11 +119,12 @@ public:
 	size_t channels;
 	size_t kernal_size;
 	size_t stride;
-	size_t output_size; 
+	size_t output_size;
+	pooling_type pooling_layer_type;
 
-	max_pooling_layer();
-	max_pooling_layer(size_t _input_size, size_t _channels, size_t _kernal_size, size_t stride);
-	~max_pooling_layer();
+	pooling_layer();
+	pooling_layer(size_t _input_size, size_t _channels, size_t _kernal_size, size_t stride, pooling_type layer_type);
+	~pooling_layer();
 
 	void virtual forward(const std::vector<std::vector<double>>& batched_inputs) override;
 	void virtual forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override;

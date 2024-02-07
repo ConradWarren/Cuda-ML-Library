@@ -5,7 +5,7 @@
 #include <iostream>
 
 __global__ static void Cuda_Max_Pooling_Layer_Forward_Pass(double* batched_inputs, double* forward_output, 
-													size_t batch_size, size_t channels, size_t input_size, size_t kernal_size, size_t output_size, size_t stride) {
+	size_t batch_size, size_t channels, size_t input_size, size_t kernal_size, size_t output_size, size_t stride) {
 	
 	size_t batch_idx = blockIdx.x * blockDim.x + threadIdx.x;
 	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
@@ -29,7 +29,30 @@ __global__ static void Cuda_Max_Pooling_Layer_Forward_Pass(double* batched_input
 	}
 }
 
-max_pooling_layer::max_pooling_layer() {
+__global__ static void Cuda_Average_Pooling_Layer_Forward_Pass(double* batched_inputs, double* forward_output,
+	size_t batch_size, size_t channels, size_t input_size, size_t kernal_size, size_t output_size, size_t stride) {
+	
+	size_t batch_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
+
+	if (batch_idx < batch_size && channel_idx < channels && position_idx < (output_size * output_size)) {
+
+		int idx = batch_idx * channels * output_size * output_size + channel_idx * output_size * output_size + position_idx;
+		int input_position_y = (position_idx / output_size) * stride;
+		int input_position_x = (position_idx % output_size) * stride;
+
+		forward_output[idx] = 0.0;
+
+		for (int i = 0; i < kernal_size; i++) {
+			for (int j = 0; j < kernal_size; j++) {
+				forward_output[idx] += batched_inputs[batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + (input_position_y + i) * kernal_size + input_position_x + j] / (double)(kernal_size);
+			}
+		}
+	}
+}
+
+pooling_layer::pooling_layer() {
 	batch_size = 0;
 	input_size = 0;
 	channels = 0;
@@ -42,9 +65,10 @@ max_pooling_layer::max_pooling_layer() {
 	forward_output = nullptr;
 	backward_input = nullptr;
 	layer_activation_function = activation_functions::Linear;
+	pooling_layer_type = pooling_type::Max;
 }
 
-max_pooling_layer::max_pooling_layer(size_t _input_size, size_t _channels, size_t _kernal_size, size_t _stride) {
+pooling_layer::pooling_layer(size_t _input_size, size_t _channels, size_t _kernal_size, size_t _stride, pooling_type layer_type) {
 
 	batch_size = 0;
 	input_size = _input_size;
@@ -59,14 +83,15 @@ max_pooling_layer::max_pooling_layer(size_t _input_size, size_t _channels, size_
 	forward_output = nullptr;
 	backward_input = nullptr;
 	layer_activation_function = activation_functions::Linear;
+	pooling_layer_type = layer_type;
 }
 
-max_pooling_layer::~max_pooling_layer() {
+pooling_layer::~pooling_layer() {
 	free(forward_output);
 	free(backward_input);
 }
 
-void max_pooling_layer::forward(const std::vector<std::vector<double>>& batched_inputs) {
+void pooling_layer::forward(const std::vector<std::vector<double>>& batched_inputs) {
 
 	double* input_arr = (double*)malloc(batched_inputs.size() * inputs * sizeof(double));
 
@@ -88,7 +113,7 @@ void max_pooling_layer::forward(const std::vector<std::vector<double>>& batched_
 	forward(input_arr, inputs, batched_inputs.size());
 	free(input_arr);
 }
-void max_pooling_layer::forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) {
+void pooling_layer::forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) {
 
 	double* input_arr = (double*)malloc(batched_inputs.size() * channels * input_size * input_size * sizeof(double));
 
@@ -126,7 +151,7 @@ void max_pooling_layer::forward(const std::vector<std::vector<std::vector<std::v
 	free(input_arr);
 }
 
-void max_pooling_layer::forward(double* batched_inputs, size_t _input_size, size_t _batch_size) {
+void pooling_layer::forward(double* batched_inputs, size_t _input_size, size_t _batch_size) {
 
 	if (_input_size != inputs) {
 		std::cerr << "Error: Batched_inputs of invalid input shape for max_pooling layer" << std::endl;
@@ -173,8 +198,13 @@ void max_pooling_layer::forward(double* batched_inputs, size_t _input_size, size
 	dim3 blocks(batch_size / 6 + 1, channels / 6 + 1, (output_size * output_size) / 6 + 1);
 	dim3 threads(6, 6, 6);
 
-	Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
-
+	if(pooling_layer_type == pooling_type::Max){
+		Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+	}
+	else if (pooling_layer_type == pooling_type::Average) {
+		Cuda_Average_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_forward_output, batch_size, channels, input_size, input_size, output_size, stride);
+	}
+	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: Failed to lauch forward pass kernal in max_pooling_layer" << std::endl;
@@ -196,7 +226,7 @@ void max_pooling_layer::forward(double* batched_inputs, size_t _input_size, size
 	cudaFree(cuda_forward_output);
 	cudaFree(cuda_batched_input);
 }
-void max_pooling_layer::forward(const layer* prev_layer) {
+void pooling_layer::forward(const layer* prev_layer) {
 	forward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);
 }
 

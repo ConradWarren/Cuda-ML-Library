@@ -3,6 +3,7 @@
 #include "layer.hpp"
 #include <iostream>
 #include <stdio.h>
+#include <random>
 
 __global__ static void Cuda_Dense_Layer_Forward_Pass(double* batched_inputs, double* weights, double* bias, double* forward_output, size_t inputs, size_t neurons, size_t batch_size) {
 
@@ -140,10 +141,13 @@ dense_layer::dense_layer(size_t _inputs, size_t _neurons, activation_functions _
 		exit(EXIT_FAILURE);
 	}
 
+	std::uniform_real_distribution<double> distribution(-1.0, 1.0);
+	std::mt19937 generator;
+
 	for (size_t i = 0; i < neurons; i++) {
-		bias[i] = (double)i;
+		bias[i] = distribution(generator);
 		for (size_t j = 0; j < inputs; j++) {
-			weights[i*inputs + j] = (double)(i * inputs + j);
+			weights[i * inputs + j] = distribution(generator);
 		}
 	}
 
@@ -331,8 +335,8 @@ void dense_layer::forward(double* batched_inputs, size_t _input_size, size_t _ba
 
 void dense_layer::forward(const layer* prev_layer) {
 
-	if (prev_layer->batch_size != batch_size || prev_layer->neurons != inputs) {
-		std::cerr << "Error: Prev_layer of invalid input shape or batch size to connect to dense_layer" << std::endl;
+	if (prev_layer->neurons != inputs) {
+		std::cerr << "Error: Prev_layer of invalid input shape to connect to dense_layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
 	forward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);

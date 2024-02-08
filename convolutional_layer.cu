@@ -2,6 +2,7 @@
 #include "device_launch_parameters.h"
 #include "layer.hpp"
 
+#include <random>
 #include <iostream>
 
 __global__ static void Cuda_Convolutional_Layer_Forward_Pass(double* batched_inputs, double* weights, double* bias, double* forward_output, 
@@ -229,10 +230,13 @@ convolutional_layer::convolutional_layer(size_t _input_size, size_t _channels, s
 		exit(EXIT_FAILURE);
 	}  
 
+	std::uniform_real_distribution<double> distribution(-1.0, 1.0);
+	std::mt19937 generator;
+
 	for (size_t i = 0; i < kernals; i++) {
-		bias[i] = (double)i;
+		bias[i] = distribution(generator);
 		for (size_t j = 0; j < channels * kernal_size * kernal_size; j++) {
-			weights[i * kernal_size * kernal_size * channels + j] = (double)(i * kernal_size * kernal_size * channels + j);
+			weights[i * kernal_size * kernal_size * channels + j] = distribution(generator);
 		}
 	}	
 }
@@ -292,7 +296,7 @@ void convolutional_layer::forward(const std::vector<std::vector<std::vector<std:
 void convolutional_layer::forward(const layer* prev_layer) {
 
 	if (prev_layer->neurons != inputs) {
-		std::cerr << "Error: Prev_layer of invalid input shape or batch size to connect to convolutional_layer" << std::endl;
+		std::cerr << "Error: Prev_layer of invalid input shape size to connect to convolutional_layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
 	
@@ -828,7 +832,7 @@ void convolutional_layer::backward(layer* prev_layer) {
 			std::cerr << "Error: Could not allocate memory for backpropigation" << std::endl;
 			exit(EXIT_FAILURE);
 		}
-		memset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
+		//memset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
 	}
 	/*
 	for (int batch_num = 0; batch_num < batch_size; batch_num++) {
@@ -919,7 +923,7 @@ void convolutional_layer::backward(layer* prev_layer) {
 	
 	if (prev_layer->layer_activation_function != activation_functions::Linear) {
 
-		error_code = cudaMalloc((void**)cuda_prev_layer_forward_output, batch_size * inputs * sizeof(double));
+		error_code = cudaMalloc((void**)&cuda_prev_layer_forward_output, batch_size * inputs * sizeof(double));
 		if (error_code != cudaError::cudaSuccess) {
 			std::cerr << "Error: cudaMalloc failed" << std::endl;
 			exit(error_code);

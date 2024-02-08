@@ -75,14 +75,14 @@ __global__ static void Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss(double*
 		int position_y_idx = position_idx/input_size;
 		int position_x_idx = position_idx % input_size;
 		prev_layer_backward_input[idx] = 0.0;
-
-		for (int y = 0; y < output_size; y++) {
+		//printf("idx: %d, pos: %d %d\n", idx, position_y_idx, position_x_idx);
+		for (int y = 0; y < kernal_size; y++) {
 			
 			if (position_y_idx - y < 0 || (position_y_idx - y) % stride != 0 || position_y_idx - y + kernal_size - 1 >= input_size) {
 				continue;
 			}
 			
-			for (int x = 0; x < output_size; x++) {
+			for (int x = 0; x < kernal_size; x++) {
 
 				if (position_x_idx - x < 0 || (position_x_idx - x) % stride != 0 || position_x_idx - x + kernal_size - 1 >= input_size) {
 					continue;
@@ -90,17 +90,17 @@ __global__ static void Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss(double*
 
 				int corner_pos_y = position_y_idx - y;
 				int corner_pos_x = position_x_idx - x;
-
+				int max_idx = batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + corner_pos_y * input_size + corner_pos_x;
 				for (int i = 0; i < kernal_size * kernal_size; i++) {
-					if (prev_layer_forward_output[batch_idx * channels * input_size * input_size * channel_idx * input_size * input_size + (corner_pos_y + i / kernal_size) * input_size + (corner_pos_x + (i % kernal_size))] > prev_layer_forward_output[idx]) {
-						corner_pos_y = -1;
-						break;
+					int test = batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + ((corner_pos_y + (i / (int)kernal_size)) * input_size) + (corner_pos_x + (i % (int)kernal_size));
+					if (prev_layer_forward_output[test] > prev_layer_forward_output[max_idx]) {
+						max_idx = test;
 					}
 				}
-
-				if (corner_pos_y != -1) {
+				
+				if (max_idx == idx) {
 					int output_idx = (corner_pos_y / stride) * output_size + corner_pos_x / stride;
-					prev_layer_backward_input[idx] += backward_input[batch_idx * channels * output_size * output_size + channel_idx * input_size * input_size + output_idx];
+					prev_layer_backward_input[idx] += backward_input[batch_idx * channels * output_size * output_size + channel_idx * output_size * output_size + output_idx];
 				}
 			}
 		}
@@ -287,12 +287,12 @@ void pooling_layer::forward(const layer* prev_layer) {
 }
 
 double pooling_layer::loss(const std::vector<std::vector<double>>& batched_targets) const {
-
+	
 	if (batched_targets.size() != batch_size) {
 		std::cerr << "Error: Batched_targets of invalid input shape for pooling layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
-
+	
 	double result = 0.0;
 
 	for (size_t i = 0; i < batch_size; i++) {
@@ -306,7 +306,8 @@ double pooling_layer::loss(const std::vector<std::vector<double>>& batched_targe
 			result += ((forward_output[i * neurons + j] - batched_targets[i][j]) * (forward_output[i * neurons + j] - batched_targets[i][j])) / (double)(batch_size * neurons);
 		}
 	}
-
+	
+	return result;
 }
 double pooling_layer::loss(const std::vector<int>& batched_targets) const {
 	//need to check softmax math here. 
@@ -359,7 +360,7 @@ void pooling_layer::init_back_propigation(const std::vector<std::vector<double>>
 		std::cerr << "Error: Batched_targets of invalid input shape for pooling layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
-
+	
 	double* input_arr = (double*)malloc(batch_size * neurons * sizeof(double));
 
 	if (input_arr == nullptr){
@@ -367,7 +368,7 @@ void pooling_layer::init_back_propigation(const std::vector<std::vector<double>>
 		exit(EXIT_FAILURE);
 	}
 
-	for (size_t i = 0; i < batched_targets.size(); i++) {
+	for (size_t i = 0; i < batch_size; i++) {
 
 		if (batched_targets[i].size() != neurons) {
 			std::cerr << "Error: Batched_targets of invalid input shape for pooling layer" << std::endl;
@@ -376,7 +377,7 @@ void pooling_layer::init_back_propigation(const std::vector<std::vector<double>>
 
 		memcpy(input_arr + i * neurons, batched_targets[i].data(), neurons * sizeof(double));
 	}
-
+	
 	init_back_propigation(input_arr, neurons, batch_size);
 	free(input_arr);
 }
@@ -436,6 +437,7 @@ void pooling_layer::init_back_propigation(double* batched_targets, size_t _input
 			std::cerr << "Error: Could not allocate memory for backward pass in pooling_layer" << std::endl;
 			exit(EXIT_FAILURE);
 		}
+	
 	}
 
 	double* cuda_batched_targets = nullptr;
@@ -449,7 +451,7 @@ void pooling_layer::init_back_propigation(double* batched_targets, size_t _input
 		exit(error_code);
 	}
 
-	error_code = cudaMalloc((void**)&cuda_forward_output, batch_size * inputs * sizeof(double));
+	error_code = cudaMalloc((void**)&cuda_forward_output, batch_size * neurons * sizeof(double));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMalloc failed" << std::endl;
 		exit(error_code);
@@ -475,9 +477,9 @@ void pooling_layer::init_back_propigation(double* batched_targets, size_t _input
 
 	dim3 blocks(batch_size / 16 + 1, neurons / 16 + 1);
 	dim3 threads(16, 16);
-
+	
 	Cuda_Pooling_Layer_Init_Backpropigation<<<blocks, threads>>>(cuda_forward_output, cuda_batched_targets, cuda_backward_input, batch_size, neurons);
-
+	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: Failed to launch init_backpropigation kernal in pooling layer" << std::endl;
@@ -489,16 +491,16 @@ void pooling_layer::init_back_propigation(double* batched_targets, size_t _input
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-
+	
 	error_code = cudaMemcpy(backward_input, cuda_backward_input, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
 		exit(error_code);
 	}
-
-	free(cuda_backward_input);
-	free(cuda_forward_output);
-	free(cuda_batched_targets);
+	
+	cudaFree(cuda_backward_input);
+	cudaFree(cuda_forward_output);
+	cudaFree(cuda_batched_targets);
 }
 
 void pooling_layer::backward(layer* prev_layer) {
@@ -555,7 +557,7 @@ void pooling_layer::backward(layer* prev_layer) {
 	dim3 threads(6, 6, 6);
 	
 	if (pooling_layer_type == pooling_type::Max) {
-		Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_prev_layer_forward_output, cuda_backward_input, cuda_backward_input, batch_size, channels, output_size, input_size, kernal_size, stride);
+		Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_prev_layer_forward_output, cuda_backward_input, cuda_prev_layer_backward_input, batch_size, channels, output_size, input_size, kernal_size, stride);
 	}
 	else if (pooling_layer_type == pooling_type::Average) {
 		std::cerr << "WARNING: Average Pooling not implemented yet" << std::endl;

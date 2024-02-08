@@ -331,6 +331,10 @@ void dense_layer::forward(double* batched_inputs, size_t _input_size, size_t _ba
 
 void dense_layer::forward(const layer* prev_layer) {
 
+	if (prev_layer->batch_size != batch_size || prev_layer->neurons != inputs) {
+		std::cerr << "Error: Prev_layer of invalid input shape or batch size to connect to dense_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
 	forward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);
 }
 
@@ -754,7 +758,7 @@ void dense_layer::backward(double* batched_inputs, size_t _input_size, size_t _b
 void dense_layer::backward(layer* prev_layer) {
 	
 	if (prev_layer->batch_size != batch_size || prev_layer->neurons != inputs) {
-		std::cerr << "Error: dense_layer of incomptibale shape or batch size with connected layer" << std::endl;
+		std::cerr << "Error: Prev_layer of invalid input shape or batch size to connect to dense_layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
 

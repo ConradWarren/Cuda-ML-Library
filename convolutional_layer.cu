@@ -292,7 +292,7 @@ void convolutional_layer::forward(const std::vector<std::vector<std::vector<std:
 void convolutional_layer::forward(const layer* prev_layer) {
 
 	if (prev_layer->neurons != inputs) {
-		std::cerr << "Error: convolutional_layer of incomptibale shape with connected layer" << std::endl;
+		std::cerr << "Error: Prev_layer of invalid input shape or batch size to connect to convolutional_layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
 	
@@ -813,6 +813,11 @@ void convolutional_layer::backward(double* batched_inputs, size_t _input_size, s
 	cudaFree(cuda_batched_input);
 }
 void convolutional_layer::backward(layer* prev_layer) {
+
+	if (prev_layer->batch_size != batch_size || prev_layer->neurons != inputs) {
+		std::cerr << "Error: Prev_layer of invalid input shape or batch size to connect to convolutional_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
 	
 	backward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);
 

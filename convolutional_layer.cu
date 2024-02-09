@@ -182,6 +182,16 @@ __global__ static void Cuda_Rectified_Linear_Activation_Backward_Pass(double* ba
 	}
 }
 
+__global__ static void Cuda_Sum_Matrixis(double* batched_inputs_1, double* batched_inputs_2, double* batched_inputs_sum, size_t batch_size, size_t inputs) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t input_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (batch_idx < batch_size && input_idx < inputs) {
+		batched_inputs_sum[batch_idx * inputs + input_idx] = batched_inputs_1[batch_idx * inputs + input_idx] + batched_inputs_2[batch_idx * inputs + input_idx];
+	}
+}
+
 convolutional_layer::convolutional_layer() { 
 	weights = nullptr;
 	bias = nullptr;
@@ -290,16 +300,6 @@ void convolutional_layer::forward(const std::vector<std::vector<std::vector<std:
 	forward(input_arr, inputs, batched_inputs.size());
 
 	free(input_arr);
-}
-
-void convolutional_layer::forward(const layer* prev_layer) {
-
-	if (prev_layer->neurons != inputs) {
-		std::cerr << "Error: Prev_layer of invalid input shape size to connect to convolutional_layer" << std::endl;
-		exit(EXIT_FAILURE);
-	}
-	
-	forward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);
 }
 
 void convolutional_layer::forward(double* batched_inputs, size_t _input_size, size_t _batch_size) {
@@ -417,6 +417,155 @@ void convolutional_layer::forward(double* batched_inputs, size_t _input_size, si
 	cudaFree(cuda_bias);
 	cudaFree(cuda_forward_output);
 }
+
+void convolutional_layer::forward(double* batched_inputs_1, double* batched_inputs_2, size_t _input_size, size_t _batch_size) {
+
+	if (_input_size != inputs) {
+		std::cerr << "Error: Batched_inputs of invalid shape to connect to dense_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	if (_batch_size != batch_size) {
+		free(forward_output);
+		free(backward_input);
+		backward_input = nullptr;
+		forward_output = (double*)malloc(_batch_size * neurons * sizeof(double));
+		if (forward_output == nullptr) {
+			std::cerr << "Error: Could not allocate memory for forward pass in dense_layer" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		batch_size = _batch_size;
+	}
+
+	double* cuda_batched_inputs_1 = nullptr;
+	double* cuda_batched_inputs_2 = nullptr;
+	double* cuda_batched_inputs_sum = nullptr;
+	double* cuda_weights = nullptr;
+	double* cuda_bias = nullptr;
+	double* cuda_forward_output = nullptr;
+	cudaError error_code;
+
+	error_code = cudaMalloc((void**)&cuda_batched_inputs_1, batch_size * inputs * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMalloc((void**)&cuda_batched_inputs_2, batch_size * inputs * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMalloc((void**)&cuda_batched_inputs_sum, batch_size * inputs * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(cuda_batched_inputs_1, batched_inputs_1, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMempy to device failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(cuda_batched_inputs_2, batched_inputs_2, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
+		exit(error_code);
+	}
+
+	dim3 blocks_2d(inputs / 16 + 1, batch_size / 16 + 1);
+	dim3 threads_2d(16, 16);
+
+	Cuda_Sum_Matrixis<<<blocks_2d, threads_2d>>>(cuda_batched_inputs_1, cuda_batched_inputs_2, cuda_batched_inputs_sum, batch_size, inputs);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cout << "Error: Failed to launch sum to matrixis kernal" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMalloc((void**)&cuda_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMalloc((void**)&cuda_bias, kernals * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMalloc((void**)forward_output, batch_size * neurons * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(cuda_weights, weights, kernals * channels * kernal_size * kernal_size * sizeof(double), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(cuda_bias, bias, kernals * sizeof(double), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
+		exit(error_code);
+	}
+
+	dim3 blocks(batch_size / 6 + 1, kernals / 6 + 1, (output_size * output_size) / 6 + 1);
+	dim3 threads(6, 6, 6);
+	Cuda_Convolutional_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_inputs_sum, cuda_weights, cuda_bias, cuda_forward_output, batch_size, kernals, kernal_size, padding, output_size, channels, input_size, stride);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch forward pass kernal in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(forward_output, cuda_forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
+		exit(error_code);
+	}
+
+	cudaFree(cuda_batched_inputs_1);
+	cudaFree(cuda_batched_inputs_2);
+	cudaFree(cuda_batched_inputs_sum);
+	cudaFree(cuda_weights);
+	cudaFree(cuda_bias);
+	cudaFree(cuda_forward_output);
+}
+
+void convolutional_layer::forward(const layer* prev_layer) {
+
+	if (prev_layer->neurons != inputs) {
+		std::cerr << "Error: Prev_layer of invalid input shape size to connect to convolutional_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	forward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);
+}
+
+void convolutional_layer::forward(const layer* prev_layer_1, const layer* prev_layer_2) {
+
+	if (prev_layer_1->neurons != inputs || prev_layer_2->neurons != inputs || prev_layer_1->batch_size != prev_layer_1->batch_size) {
+		std::cerr << "Error: "<<std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	forward(prev_layer_1->forward_output, prev_layer_2->forward_output, prev_layer_1->neurons, prev_layer_1->batch_size);
+}
+
 
 double convolutional_layer::loss(const std::vector<std::vector<double>>& batched_targets) const {
 

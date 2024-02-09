@@ -21,9 +21,8 @@ void Print_Forward_Output(double* arr, size_t batch_size, size_t neurons) {
 //Implement Softmax + do math
 //Rename Loss functions / Init_Loss functions to proper names. Cross_Entropy_Mean_Loss ect. 
 //Optimize kernals (specifically the inputs).
-//Need to test second backward pass in dense_layer. 99% sure error has been fixed but needs to be checked.
 //Need to add a check that backward_input/forward_output is intialized in each layer in backward pass.
-//Add residual_layers. 
+//Add residual_layers. (forward pass for dense_layer done)
 
 int main(void) {
 
@@ -42,7 +41,7 @@ int main(void) {
 	layer_4.forward(&layer_3);
 	layer_5.forward(&layer_4);
 	std::cout << "finished forward pass" << std::endl;
-	
+	/*
 	double loss = layer_5.loss(batched_targets);
 	std::cout << "loss = " << loss << '\n';
 	double esp = 1e-4;
@@ -57,8 +56,8 @@ int main(void) {
 	std::cout << "loss_ph = " << loss_ph << '\n';
 	double dl_dp = (loss_ph - loss) / esp;
 	std::cout << dl_dp << "\n";
+	*/
 	
-	/*
 	layer_5.init_back_propigation(batched_targets);
 	std::cout << "Finished init_back_prop" << std::endl;
 	layer_5.backward(&layer_4);
@@ -71,7 +70,7 @@ int main(void) {
 	std::cout << "Finished layer_2 backward pass" << std::endl;
 	layer_1.backward(batched_inputs);
 	std::cout << "Finished layer_1 backward pass" << std::endl;
-	*/
+	
 	//Print_Forward_Output(layer_1.d_weights, 8, 2);
 	
 	/*

@@ -57,17 +57,17 @@ __global__ static void Cuda_Convolutional_Layer_First_Backward_Pass(double* batc
 		int idx = kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx;
 		d_weights[idx] = 0.0;
 
-		int weight_y_offset = position_idx / kernal_size;
-		int weight_x_offset = position_idx % kernal_size;
+		int weight_y_offset = position_idx / (int)kernal_size;
+		int weight_x_offset = position_idx % (int)kernal_size;
 			
 		for (int y = 0; y < (int)output_size; y++) {
 
 			for (int x = 0; x < (int)output_size; x++) {
 
-				int position_y = (y * stride) - padding + weight_y_offset;
-				int position_x = (x * stride) - padding + weight_x_offset;
+				int position_y = (y * (int)stride) - (int)padding + weight_y_offset;
+				int position_x = (x * (int)stride) - (int)padding + weight_x_offset;
 
-				if (position_y < 0 || position_y >= input_size || position_x < 0 || position_y >= input_size) {
+				if (position_y < 0 || position_y >= input_size || position_x < 0 || position_x >= input_size) {
 					continue;
 				}
 				
@@ -76,7 +76,6 @@ __global__ static void Cuda_Convolutional_Layer_First_Backward_Pass(double* batc
 				}
 			}
 		}
-		
 	}
 }
 
@@ -455,7 +454,6 @@ double convolutional_layer::loss(const std::vector<int>& batched_targets) const 
 double convolutional_layer::loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const {
 
 	if (batched_targets.size() != batch_size) {
-		std::cout << batched_targets.size() << " " << batch_size << '\n';
 		std::cerr << "Error: Incompatible batch size, cannot calculate loss in convolutional_layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
@@ -778,7 +776,6 @@ void convolutional_layer::backward(double* batched_inputs, size_t _input_size, s
 
 	Cuda_Convolutional_Layer_First_Backward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_backward_input, cuda_d_weights, batch_size, kernals, channels, kernal_size, input_size, output_size, stride, padding);
 	
-
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: Failed to launch kernal for backward pass in convolutional_layer" << std::endl;
@@ -832,47 +829,7 @@ void convolutional_layer::backward(layer* prev_layer) {
 			std::cerr << "Error: Could not allocate memory for backpropigation" << std::endl;
 			exit(EXIT_FAILURE);
 		}
-		//memset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
 	}
-	/*
-	for (int batch_num = 0; batch_num < batch_size; batch_num++) {
-		int output_y = 0;
-		for (int y = 0 - padding; y < input_size - kernal_size + 1 + padding; y += stride) {
-			int output_x = 0;
-
-			for (int x = 0 - padding; x < input_size - kernal_size + 1 + padding; x += stride) {
-
-				for (int a = 0; a < kernal_size; a++) {
-
-					if (y + a < 0 || y + a >= input_size) {
-						continue;
-					}
-
-					for (int b = 0; b < kernal_size; b++) {
-
-						if (x + b < 0 || x + b >= input_size) {
-							continue;
-						}
-
-						for (int channel_idx = 0; channel_idx < channels; channel_idx++) {
-
-							for (int kernal_idx = 0; kernal_idx < kernals; kernal_idx++) {
-
-								prev_layer->backward_input[batch_num * inputs + channel_idx * input_size * input_size + (y + a) * input_size + (x + b)] += backward_input[batch_num * neurons + kernal_idx * output_size * output_size + output_y * output_size + output_x] * weights[kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + a * kernal_size + b];
-
-							}
-
-						}
-					}
-				}
-				output_x++;
-			}
-			output_y++;
-		}
-
-	}
-	return;
-	*/
 
 	double* cuda_weights = nullptr;
 	double* cuda_backward_input = nullptr;
@@ -979,5 +936,4 @@ void convolutional_layer::update_paramters(double learning_rate) {
 	for (int i = 0; i < kernals; i++) {
 		bias[i] -= d_bias[i] * learning_rate;
 	}
-
 }

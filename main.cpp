@@ -27,43 +27,43 @@ void Print_Forward_Output(double* arr, size_t batch_size, size_t neurons) {
 int main(void) {
 
 	std::vector<std::vector<std::vector<std::vector<double>>>> batched_inputs = { {{{5, 5, 5,5}, {5,5,5,5}, {5, 5, 5, 5}, {1, 1, 1, 1}}, {{0.6, 0.6, 0.4,0.5}, {5,5,5,5}, {1, 1, 0.5, 0.5}, {1, 1, 1, 1}}}, {{{0.5, 0.5, 0.5,0.5}, {1.5,1.5,1.5,1.5}, {1.5, 1.5, 1.5, 5}, {0.1, 0.1, 10, 1}}, {{0.6, 0.6, 0.4,0.5}, {5,5,5,5}, {1, 1, 0.5, 0.5}, {1, 1, 1, 1}}} };
-	std::vector<std::vector<double>> batched_targets = { {1, 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1},{1, 1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1} };
-
+	std::vector<std::vector<double>> batched_targets = { {1,1},{2,2} };
 
 	convolutional_layer layer_1(4, 2, 4, 2, 1, 1, activation_functions::Linear);
 	convolutional_layer layer_2(5, 4, 4, 3, 1, 1, activation_functions::Linear);
 	convolutional_layer layer_3(5, 4, 4, 3, 2, 0, activation_functions::Linear);
 	pooling_layer layer_4(2, 4, 2, 1, pooling_type::Max);
-	//dense_layer layer_5(4, 2, activation_functions::Linear);
+	dense_layer layer_5(4, 2, activation_functions::Linear);
 
 	layer_1.forward(batched_inputs);
 	layer_2.forward(&layer_1);
 	layer_3.forward(&layer_2);
-	//layer_4.forward(&layer_3);
-
+	layer_4.forward(&layer_3);
+	layer_5.forward(&layer_4);
 	std::cout << "finished forward pass" << std::endl;
-	//layer_5.forward(&layer_4);
-	
-	
-	double loss = layer_3.loss(batched_targets);
+	/*
+	double loss = layer_5.loss(batched_targets);
 	std::cout << "loss = " << loss << '\n';
-	double esp = 1e-3;
-	layer_1.weights[5] += esp;
+	double esp = 1e-4;
+	layer_1.weights[15] += esp;
 
 	layer_1.forward(batched_inputs);
 	layer_2.forward(&layer_1);
 	layer_3.forward(&layer_2);
-	//layer_4.forward(&layer_3);
-	//layer_5.forward(&layer_4);
-	double loss_ph = layer_3.loss(batched_targets);
+	layer_4.forward(&layer_3);
+	layer_5.forward(&layer_4);
+	double loss_ph = layer_5.loss(batched_targets);
 	std::cout << "loss_ph = " << loss_ph << '\n';
 	double dl_dp = (loss_ph - loss) / esp;
 	std::cout << dl_dp << "\n";
+	*/
 	
-	/*
-	layer_3.init_back_propigation(batched_targets);
+	layer_5.init_back_propigation(batched_targets);
 	std::cout << "Finished init_back_prop" << std::endl;
-	//layer_5.backward(&layer_4);
+	layer_5.backward(&layer_4);
+	std::cout << "Finished layer_5 backward pass" << std::endl;
+	layer_4.backward(&layer_3);
+	std::cout << "Finished layer_4 backward pass" << std::endl;
 	layer_3.backward(&layer_2);
 	std::cout << "Finished layer_3 backward pass" << std::endl;
 	layer_2.backward(&layer_1);
@@ -72,18 +72,18 @@ int main(void) {
 	std::cout << "Finished layer_1 backward pass" << std::endl;
 	
 	Print_Forward_Output(layer_1.d_weights, 8, 2);
-	*/
+	
+
 	/*
-	{0 = > 3275.15, 1 = > 4059.87} 0 = > 3275.93, 1 => 4172.79, 4171.84, 4171.75, 4171.74 ??
-	{2 = > 511.155, 3 = > 1810.47} 2 => 511.565, 3 => 1831.7
-	{4 = > -1202.56, 5 = > -75.1781} 4 => -1202.21, 5 => -466.445
-	{6 = > 3147.18, 7 = > 2932.62} 6 => 
-	{8 = > 769.531, 9 = > 661.845}
-	{10 = > -855.111, 11 = > 154.524}
-	{12 = > -1365.54, 13 = > -453.202}
-	{14 = > 1543.22, 15 = > 1094.88}
+	{0 = > 2573.53, 1 = > 52.225} 0 => 2573.62, 1 => 52.2413
+	{2 = > -1612.34, 3 = > -2226.04} 2 => -1612.31, 3 => -2226.01
+	{4 = > -4329.49, 5 = > -4061.62} 4 => -4329.37, 5 => -4061.54
+	{6 = > 5163.37, 7 = > 2836.03}  6 => 5163.49, 7 => 2836.06
+	{8 = > 809.043, 9 = > 2472.08}  8 => 809.049, 9 => 2472.09
+	{10 = > -1800.76, 11 = > 1889.7} 10 => -1800.75, 11 => 1889.71
+	{12 = > -2504.28, 13 = > -127.897} 12 => -2504.25, 13 => -127.874
+	{14 = > 2613.98, 15 = > 3012.55} 14 => 2614.01, 15 => 3012.59
 	*/
-
-
+	
 	return 0;
 }

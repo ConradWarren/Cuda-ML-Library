@@ -46,7 +46,7 @@ __global__ static void Cuda_Average_Pooling_Layer_Forward_Pass(double* batched_i
 
 		for (int i = 0; i < kernal_size; i++) {
 			for (int j = 0; j < kernal_size; j++) {
-				forward_output[idx] += batched_inputs[batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + (input_position_y + i) * kernal_size + input_position_x + j] / (double)(kernal_size);
+				forward_output[idx] += batched_inputs[batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + (input_position_y + i) * kernal_size + input_position_x + j] / (double)(kernal_size * kernal_size);
 			}
 		}
 	}
@@ -75,7 +75,7 @@ __global__ static void Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss(double*
 		int position_y_idx = position_idx/input_size;
 		int position_x_idx = position_idx % input_size;
 		prev_layer_backward_input[idx] = 0.0;
-		//printf("idx: %d, pos: %d %d\n", idx, position_y_idx, position_x_idx);
+		
 		for (int y = 0; y < kernal_size; y++) {
 			
 			if (position_y_idx - y < 0 || (position_y_idx - y) % stride != 0 || position_y_idx - y + kernal_size - 1 >= input_size) {
@@ -104,6 +104,40 @@ __global__ static void Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss(double*
 				}
 			}
 		}
+	}
+}
+
+__global__ static void Cuda_Average_Pooling_Layer_Partial_Derivitive_of_Loss(double* prev_layer_forward_output, double* backward_input, double* prev_layer_backward_input,
+	size_t batch_size, size_t channels, size_t output_size, size_t input_size, size_t kernal_size, size_t stride) {
+
+	size_t batch_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
+
+	if (batch_idx < batch_size && channel_idx < channels && position_idx < (input_size * input_size)) {
+		
+		int idx = batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + position_idx;
+		int position_idx_y = position_idx / input_size;
+		int position_idx_x = position_idx % input_size;
+		prev_layer_backward_input[idx] = 0.0;
+
+		for (int y = 0; y < kernal_size; y++) {
+			
+			if ((position_idx_y - y) < 0 || (position_idx_y - y - 1 + kernal_size) >= input_size || (position_idx_y - y) % stride != 0) {
+				continue;
+			}
+			
+			for (int x = 0; x < kernal_size; x++) {
+
+				if ((position_idx_x - x) < 0 || (position_idx_x - x - 1 + kernal_size) >= input_size || (position_idx_x - x) % stride != 0) {
+					continue;
+				}
+
+				int output_idx = ((position_idx_y - y) / stride) * output_size + (position_idx_x - x)/stride;
+				prev_layer_backward_input[idx] += backward_input[batch_idx * channels * output_size * output_size + channel_idx * output_size * output_size + output_idx] / (double)(kernal_size * kernal_size);
+			}
+		}
+
 	}
 
 }
@@ -560,7 +594,7 @@ void pooling_layer::backward(layer* prev_layer) {
 		Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_prev_layer_forward_output, cuda_backward_input, cuda_prev_layer_backward_input, batch_size, channels, output_size, input_size, kernal_size, stride);
 	}
 	else if (pooling_layer_type == pooling_type::Average) {
-		std::cerr << "WARNING: Average Pooling not implemented yet" << std::endl;
+		Cuda_Average_Pooling_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_prev_layer_forward_output, cuda_backward_input, cuda_prev_layer_backward_input, batch_size, channels, output_size, input_size, kernal_size, stride);
 	}
 
 	error_code = cudaGetLastError();

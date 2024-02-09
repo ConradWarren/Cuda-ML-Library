@@ -22,7 +22,8 @@ void Print_Forward_Output(double* arr, size_t batch_size, size_t neurons) {
 //Rename Loss functions / Init_Loss functions to proper names. Cross_Entropy_Mean_Loss ect. 
 //Optimize kernals (specifically the inputs).
 //Need to test second backward pass in dense_layer. 99% sure error has been fixed but needs to be checked.
-//Need to add a check that backward_input is intialized in each layer in backward pass.
+//Need to add a check that backward_input/forward_output is intialized in each layer in backward pass.
+//Add residual_layers. 
 
 int main(void) {
 
@@ -32,7 +33,7 @@ int main(void) {
 	convolutional_layer layer_1(4, 2, 4, 2, 1, 1, activation_functions::Linear);
 	convolutional_layer layer_2(5, 4, 4, 3, 1, 1, activation_functions::Linear);
 	convolutional_layer layer_3(5, 4, 4, 3, 2, 0, activation_functions::Linear);
-	pooling_layer layer_4(2, 4, 2, 1, pooling_type::Max);
+	pooling_layer layer_4(2, 4, 2, 1, pooling_type::Average);
 	dense_layer layer_5(4, 2, activation_functions::Linear);
 
 	layer_1.forward(batched_inputs);
@@ -41,7 +42,7 @@ int main(void) {
 	layer_4.forward(&layer_3);
 	layer_5.forward(&layer_4);
 	std::cout << "finished forward pass" << std::endl;
-	/*
+	
 	double loss = layer_5.loss(batched_targets);
 	std::cout << "loss = " << loss << '\n';
 	double esp = 1e-4;
@@ -56,8 +57,8 @@ int main(void) {
 	std::cout << "loss_ph = " << loss_ph << '\n';
 	double dl_dp = (loss_ph - loss) / esp;
 	std::cout << dl_dp << "\n";
-	*/
 	
+	/*
 	layer_5.init_back_propigation(batched_targets);
 	std::cout << "Finished init_back_prop" << std::endl;
 	layer_5.backward(&layer_4);
@@ -70,20 +71,20 @@ int main(void) {
 	std::cout << "Finished layer_2 backward pass" << std::endl;
 	layer_1.backward(batched_inputs);
 	std::cout << "Finished layer_1 backward pass" << std::endl;
-	
-	Print_Forward_Output(layer_1.d_weights, 8, 2);
-	
-
-	/*
-	{0 = > 2573.53, 1 = > 52.225} 0 => 2573.62, 1 => 52.2413
-	{2 = > -1612.34, 3 = > -2226.04} 2 => -1612.31, 3 => -2226.01
-	{4 = > -4329.49, 5 = > -4061.62} 4 => -4329.37, 5 => -4061.54
-	{6 = > 5163.37, 7 = > 2836.03}  6 => 5163.49, 7 => 2836.06
-	{8 = > 809.043, 9 = > 2472.08}  8 => 809.049, 9 => 2472.09
-	{10 = > -1800.76, 11 = > 1889.7} 10 => -1800.75, 11 => 1889.71
-	{12 = > -2504.28, 13 = > -127.897} 12 => -2504.25, 13 => -127.874
-	{14 = > 2613.98, 15 = > 3012.55} 14 => 2614.01, 15 => 3012.59
 	*/
+	//Print_Forward_Output(layer_1.d_weights, 8, 2);
 	
+	/*
+	{0 = > 266.151, 1 = > -161.152} 0 => 266.168, 1 => -161.147
+	{2 = > -1785.43, 3 = > -1669.29} 2 => -1785.41, 3 => -1669.27
+	{4 = > -2731.55, 5 = > -2792.2} 4 => -2731.48, 5 => -2792.13
+	{6 = > 1939.53, 7 = > 1796.93} 6 => 1939.56, 7 => 1796.95
+	{8 = > 1654.74, 9 = > 1646.17} 8 => 1654.75, 9 => 146.401
+	{10 = > 146.399, 11 = > 733.704} 10 => 146.401, 11 => 733.708
+	{12 = > -1023.31, 13 = > -240.998} 12 => -1023.3, 13 => -240.996
+	{14 = > 2030.46, 15 = > 2021.17}  14 => 2030.49,  15 => 2021.2
+	
+	*/
+
 	return 0;
 }

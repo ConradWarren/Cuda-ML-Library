@@ -130,7 +130,7 @@ public:
 	void virtual forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override;
 	void virtual forward(double* batched_inputs, size_t _input_size, size_t _batch_size) override;
 	void virtual forward(const layer* prev_layer) override;
-
+	
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
 	double virtual loss(const std::vector<int>& batched_targets) const override;
 	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;

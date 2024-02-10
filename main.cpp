@@ -22,7 +22,6 @@ void Print_Forward_Output(double* arr, size_t batch_size, size_t neurons) {
 //Rename Loss functions / Init_Loss functions to proper names. Cross_Entropy_Mean_Loss ect. 
 //Optimize kernals (specifically the inputs).
 //Need to add a check that backward_input/forward_output is intialized in each layer in backward pass.
-//Add residual_layers. (forward pass for dense_layer done)
 
 int main(void) {
 
@@ -71,7 +70,7 @@ int main(void) {
 	layer_1.backward(batched_inputs);
 	std::cout << "Finished layer_1 backward pass" << std::endl;
 	
-	//Print_Forward_Output(layer_1.d_weights, 8, 2);
+	Print_Forward_Output(layer_1.d_weights, 8, 2);
 	
 	/*
 	{0 = > 266.151, 1 = > -161.152} 0 => 266.168, 1 => -161.147

@@ -825,10 +825,12 @@ void dense_layer::backward(double* batched_inputs, size_t _input_size, size_t _b
 
 	if (_batch_size != batch_size || _input_size != inputs) {
 		std::cerr << "Error: Invalid input size for backward pass" << std::endl;
+		exit(EXIT_FAILURE);
 	}
 
 	if (backward_input == nullptr) {
-		std::cerr << "Error: Dense_layer not intialized" << std::endl;
+		std::cerr << "Error: Dense_layer not intialized for backward pass" << std::endl;
+		exit(EXIT_FAILURE);
 	}
 	
 	double* cuda_batched_inputs = nullptr;

@@ -873,6 +873,11 @@ void convolutional_layer::backward(const std::vector<std::vector<std::vector<std
 }
 void convolutional_layer::backward(double* batched_inputs, size_t _input_size, size_t _batch_size) {
 
+	if (backward_input == nullptr) {
+		std::cerr << "Error: Convolutional_layer not initialized for backward pass" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
 	if (inputs != _input_size || batch_size != _batch_size) {
 		std::cerr << "Error: Batched_inputs of incompatible input shape" << std::endl;
 		exit(EXIT_FAILURE);

@@ -384,7 +384,7 @@ void pooling_layer::forward(double* batched_inputs_1, double* batched_inputs_2, 
 	dim3 blocks_2d(inputs/16 + 1, batch_size/16 + 1);
 	dim3 threads_2d(16, 16);
 
-	Cuda_Matrix_Addition<<<bloccks_2d, threads_2d>>>(cuda_batched_inputs_1, cuda_batched_inputs_2, cuda_batched_inputs_sum, batch_size, inputs);
+	Cuda_Matrix_Addition<<<blocks_2d, threads_2d>>>(cuda_batched_inputs_1, cuda_batched_inputs_2, cuda_batched_inputs_sum, batch_size, inputs);
 	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -402,10 +402,10 @@ void pooling_layer::forward(double* batched_inputs_1, double* batched_inputs_2, 
 	dim3 threads(6, 6, 6);
 
 	if (pooling_layer_type == pooling_type::Max) {
-		Cuda_Average_Pooling_Layer_Forward_Pass(cuda_batched_inputs_sum, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+		Cuda_Average_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_inputs_sum, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
 	else if (pooling_layer_type == pooling_type::Average) {
-		Cuda_Max_Pooling_Layer_Forward_Pass(cuda_batched_inputs_sum, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+		Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_inputs_sum, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
 
 	error_code = cudaGetLastError();
@@ -673,6 +673,11 @@ void pooling_layer::backward(layer* prev_layer) {
 	
 	if (prev_layer->batch_size != batch_size || prev_layer->neurons != inputs) {
 		std::cerr << "Error: Prev_layer of invalid input shape or batch size to connected to pooling_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+	
+	if (backward_input == nullptr) {
+		std::cerr << "Error: Pooling_layer not initialized for backward pass" << std::endl;
 		exit(EXIT_FAILURE);
 	}
 

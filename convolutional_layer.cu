@@ -559,7 +559,7 @@ void convolutional_layer::forward(const layer* prev_layer) {
 void convolutional_layer::forward(const layer* prev_layer_1, const layer* prev_layer_2) {
 
 	if (prev_layer_1->neurons != inputs || prev_layer_2->neurons != inputs || prev_layer_1->batch_size != prev_layer_1->batch_size) {
-		std::cerr << "Error: "<<std::endl;
+		std::cerr << "Error: Prev_layer of invalid input shape to connect to convolutional_layer" << std::endl;
 		exit(EXIT_FAILURE);
 	}
 

@@ -159,6 +159,8 @@ dense_layer::dense_layer(size_t _inputs, size_t _neurons, activation_functions _
 		}
 	}
 
+	//memset(d_weights, 0, neurons * inputs * sizeof(double));
+
 }
 
 dense_layer::~dense_layer() {
@@ -1245,7 +1247,10 @@ void dense_layer::backward(layer* prev_layer_1, layer* prev_layer_2) {
 		exit(error_code);
 	}
 
-	//kernal call
+	dim3 blocks(inputs/16 + 1,batch_size/16 + 1);
+	dim3 threads(16, 16);
+
+	Cuda_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_backward_input, cuda_weights, cuda_prev_layer_1_backward_input, batch_size, inputs, neurons);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -1265,7 +1270,7 @@ void dense_layer::backward(layer* prev_layer_1, layer* prev_layer_2) {
 		exit(error_code);
 	}
 
-	//kernal call.
+	Cuda_Partial_Derivitive_of_Loss<<<blocks, threads >>>(cuda_backward_input, cuda_weights, cuda_prev_layer_2_backward_input, batch_size, inputs, neurons);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -1287,7 +1292,12 @@ void dense_layer::backward(layer* prev_layer_1, layer* prev_layer_2) {
 			exit(error_code);
 		}
 
-		//kernal calls
+		if (prev_layer_1->layer_activation_function == activation_functions::Sigmoid) {
+			Cuda_Sigmoid_Activation_Backward_Pass<<<blocks, inputs>>>(cuda_prev_layer_1_backward_input, cuda_prev_layer_1_forward_output, batch_size, inputs);
+		}
+		else if (prev_layer_1->layer_activation_function == activation_functions::Rectified_Linear) {
+			Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, inputs>>>(cuda_prev_layer_1_backward_input, cuda_prev_layer_1_forward_output, batch_size, inputs);
+		}
 
 		error_code = cudaGetLastError();
 		if (error_code != cudaError::cudaSuccess) {
@@ -1311,7 +1321,12 @@ void dense_layer::backward(layer* prev_layer_1, layer* prev_layer_2) {
 			exit(error_code);
 		}
 
-		//kernal calls
+		if (prev_layer_2->layer_activation_function == activation_functions::Sigmoid) {
+			Cuda_Sigmoid_Activation_Backward_Pass<<<blocks, threads>>>(cuda_prev_layer_2_backward_input, cuda_prev_layer_2_backward_input, batch_size, inputs);
+		}
+		else if (prev_layer_2->layer_activation_function == activation_functions::Rectified_Linear) {
+			Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(cuda_prev_layer_2_backward_input, cuda_prev_layer_2_forward_output, batch_size, inputs);
+		}
 
 		error_code = cudaGetLastError();
 		if (error_code != cudaError::cudaSuccess) {
@@ -1342,7 +1357,7 @@ void dense_layer::backward(layer* prev_layer_1, layer* prev_layer_2) {
 	cudaFree(cuda_prev_layer_1_backward_input);
 	cudaFree(cuda_prev_layer_2_backward_input);
 	cudaFree(cuda_backward_input);
-	cudaFree(cuda_prev_layer_1_backward_input);
+	cudaFree(cuda_prev_layer_1_forward_output);
 	cudaFree(cuda_prev_layer_2_forward_output);
 }
 

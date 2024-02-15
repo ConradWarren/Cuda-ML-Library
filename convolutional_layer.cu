@@ -117,7 +117,7 @@ __global__ static void Cuda_Convolution_Layer_Partial_Derivitive_of_Loss(double*
 		int idx = batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + position_idx;
 		int position_y_idx = position_idx / input_size;
 		int position_x_idx = position_idx % input_size;
-		prev_layer_backward_input[idx] = 0.0;
+		//prev_layer_backward_input[idx] = 0.0;
 		
 		for (int y = 0; y < kernal_size; y++) {
 			
@@ -260,8 +260,25 @@ convolutional_layer::~convolutional_layer() {
 }
 
 void convolutional_layer::forward(const std::vector<std::vector<double>>& batched_inputs) {
-	std::cerr << "Error: Auto de-flattening not supported at this time" << std::endl;
-	exit(EXIT_FAILURE);
+	
+	double* input_arr = (double*)malloc(batched_inputs.size() * inputs * sizeof(double));
+
+	if (input_arr == nullptr) {
+		std::cerr << "Error: Could not allocate memory in convolutional_layer for forward pass" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	for (size_t i = 0; i < batched_inputs.size(); i++) {
+
+		if (batched_inputs[i].size() != inputs) {
+			std::cerr << "Error: Inputs incompatible shape with convolutional_layer" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		
+		memcpy(input_arr + i * inputs, batched_inputs[i].data(), inputs * sizeof(double));
+	}
+
+	forward(input_arr, inputs, batched_inputs.size());
 }
 
 void convolutional_layer::forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) {
@@ -327,7 +344,7 @@ void convolutional_layer::forward(double* batched_inputs, size_t _input_size, si
 	}
 
 	if (backward_input != nullptr) {
-		memset(backward_input, 0, batch_size * neurons * sizeof(double));
+		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
 	}
 
 	double* cuda_batched_inputs = nullptr;
@@ -442,7 +459,7 @@ void convolutional_layer::forward(double* batched_inputs, double* residual_input
 	}
 
 	if (backward_input != nullptr) {
-		memset(backward_input, 0, batch_size * neurons * sizeof(double));
+		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
 	}
 
 	double* cuda_batched_inputs = nullptr;
@@ -464,7 +481,7 @@ void convolutional_layer::forward(double* batched_inputs, double* residual_input
 		exit(error_code);
 	}
 
-	error_code = cudaMalloc((void**)cuda_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
+	error_code = cudaMalloc((void**)&cuda_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMalloc failed" << std::endl;
 		exit(error_code);
@@ -505,7 +522,7 @@ void convolutional_layer::forward(double* batched_inputs, double* residual_input
 		exit(error_code);
 	}
 
-	error_code = cudaMalloc((void**)cuda_residual_inputs, batch_size * neurons * sizeof(double));
+	error_code = cudaMalloc((void**)&cuda_residual_inputs, batch_size * neurons * sizeof(double));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMalloc failed" << std::endl;
 		exit(error_code);
@@ -738,6 +755,7 @@ void convolutional_layer::init_back_propigation(double* batched_targets, size_t 
 			std::cerr << "Error: Unable to allocate memory for backpropigation in convolutional_layer" << std::endl;
 			exit(EXIT_FAILURE);
 		}
+		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
 	}
 
 	double* cuda_forward_output = nullptr;
@@ -770,6 +788,12 @@ void convolutional_layer::init_back_propigation(double* batched_targets, size_t 
 	}
 
 	error_code = cudaMemcpy(cuda_batched_targets, batched_targets, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(cuda_backward_input, cuda_backward_input, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
 		exit(error_code);
@@ -999,6 +1023,7 @@ void convolutional_layer::backward(layer* prev_layer) {
 			std::cerr << "Error: Could not allocate memory for backpropigation" << std::endl;
 			exit(EXIT_FAILURE);
 		}
+		std::fill(prev_layer->backward_input, prev_layer->backward_input + batch_size * inputs, 0.0);
 	}
 
 	double* cuda_weights = nullptr;
@@ -1032,6 +1057,12 @@ void convolutional_layer::backward(layer* prev_layer) {
 	}
 
 	error_code = cudaMemcpy(cuda_backward_input, backward_input, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(cuda_prev_layer_backward_input, prev_layer->backward_input, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
 		exit(error_code);
@@ -1094,7 +1125,27 @@ void convolutional_layer::backward(layer* prev_layer) {
 	cudaFree(cuda_weights);
 	cudaFree(cuda_backward_input);
 	cudaFree(cuda_prev_layer_backward_input);
-	if (cuda_prev_layer_forward_output != nullptr) cudaFree(cuda_prev_layer_forward_output);
+	cudaFree(cuda_prev_layer_forward_output);
+}
+
+void convolutional_layer::backward(layer* prev_layer, layer* residual_layer) {
+
+	if (prev_layer->batch_size != batch_size || residual_layer->batch_size != batch_size || prev_layer->neurons != inputs || residual_layer->neurons != neurons) {
+		std::cerr << "Error: Prev_layer or residual_layer of invalid input shape or batch size to connect to convolutional_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	if (residual_layer->backward_input == nullptr) {
+		residual_layer->backward_input = (double*)malloc(batch_size * neurons * sizeof(double));
+		if (residual_layer->backward_input == nullptr) {
+			std::cerr << "Error: Could not allocate memory for backward pass in residual_layer" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	memcpy(residual_layer->backward_input, backward_input, batch_size * neurons * sizeof(double));
+
+	backward(prev_layer);	
 }
 
 void convolutional_layer::update_paramters(double learning_rate) {

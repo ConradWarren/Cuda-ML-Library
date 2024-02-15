@@ -159,8 +159,6 @@ dense_layer::dense_layer(size_t _inputs, size_t _neurons, activation_functions _
 		}
 	}
 
-	//memset(d_weights, 0, neurons * inputs * sizeof(double));
-
 }
 
 dense_layer::~dense_layer() {
@@ -252,7 +250,7 @@ void dense_layer::forward(double* batched_inputs, size_t _input_size, size_t _ba
 	}
 
 	if (backward_input != nullptr) {
-		memset(backward_input, 0, batch_size * neurons * sizeof(double));
+		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
 	}
 
 	double* cuda_batched_inputs = nullptr;
@@ -365,7 +363,7 @@ void dense_layer::forward(double* batched_inputs, double* residual_batched_input
 	}
 
 	if (backward_input != nullptr) {
-		memset(backward_input, 0, batch_size * neurons * sizeof(double));
+		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
 	}
 
 	double* cuda_batched_inputs = nullptr;
@@ -933,7 +931,7 @@ void dense_layer::backward(layer* prev_layer) {
 			std::cerr << "Error: Could not allocated memory in dense layer for backpropigation" << std::endl;
 			exit(EXIT_FAILURE);
 		}
-		memset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
+		std::fill(prev_layer->backward_input, prev_layer->backward_input + batch_size * inputs, 0.0);
 	}
 
 	double* cuda_weights = nullptr;
@@ -1056,7 +1054,7 @@ void dense_layer::backward(layer* prev_layer, layer* residual_layer) {
 			std::cerr << "Error: Could not allocate memory for backward pass in dense_layer" << std::endl;
 			exit(EXIT_FAILURE);
 		}
-		memset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
+		std::fill(prev_layer->backward_input, prev_layer->backward_input + batch_size * inputs, 0.0);
 	}
 
 	if (residual_layer->backward_input == nullptr) {
@@ -1065,13 +1063,12 @@ void dense_layer::backward(layer* prev_layer, layer* residual_layer) {
 			std::cerr << "Error: Could not allocate memory for backward pass in dense_layer" << std::endl;
 			exit(EXIT_FAILURE);
 		}
-		memset(residual_layer->backward_input, 0, batch_size * inputs * sizeof(double));
+		std::fill(residual_layer->backward_input, residual_layer->backward_input + batch_size * neurons, 0.0);
 	}
 
 	double* cuda_weights = nullptr;
 	double* cuda_backward_input = nullptr;
 	double* cuda_prev_layer_backward_input = nullptr;
-	//double* cuda_residual_layer_backward_input = nullptr;
 	double* cuda_prev_layer_forward_output = nullptr;
 	cudaError error_code;
 

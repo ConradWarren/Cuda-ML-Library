@@ -684,6 +684,7 @@ void pooling_layer::backward(layer* prev_layer) {
 			std::cerr << "Error: Could not allocate memory for backward pass in pooling layer" << std::endl;
 			exit(EXIT_FAILURE);
 		}
+		memset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
 	}
 
 	double* cuda_backward_input = nullptr;
@@ -752,4 +753,24 @@ void pooling_layer::backward(layer* prev_layer) {
 	cudaFree(cuda_backward_input);
 	cudaFree(cuda_prev_layer_forward_output);
 	cudaFree(cuda_prev_layer_backward_input);
+}
+
+void pooling_layer::backward(layer* prev_layer, layer* residual_layer) {
+
+	if (prev_layer->batch_size != batch_size || prev_layer->neurons != inputs || residual_layer->batch_size != batch_size || residual_layer->neurons != neurons) {
+		std::cerr << "Error: Prev_layer or residual_layer of invalid input shape or batch size to connected to pooling_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	if (residual_layer->backward_input == nullptr) {
+		residual_layer->backward_input = (double*)malloc(batch_size * neurons * sizeof(double));
+		if (residual_layer->backward_input == nullptr) {
+			std::cerr << "Error: Could not allocate memory for backward pass in residual_layer" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+	 }
+
+	memcpy(residual_layer->backward_input, backward_input, batch_size * neurons * sizeof(double));
+
+	backward(prev_layer);
 }

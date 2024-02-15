@@ -22,44 +22,55 @@ void Print_Forward_Output(double* arr, size_t batch_size, size_t neurons) {
 //Implement Softmax + do math
 //Rename Loss functions / Init_Loss functions to proper names. Cross_Entropy_Mean_Loss ect. 
 //Optimize kernals (specifically the inputs).
-//Possibly worth it to check if batched_inputs is equal to nullptr or mayber the forward_output of prev_layer.
-//All checks for residual connections need to double checked.
-//Pooling layer and convolutional layer residual forward pass needs to be re-done.
-
-//Dense_layer residual forward pass is done, but not tested. Backward pass is almost done, but structure is now understood.
+//Need to implement residual backward pass for convolutional and pooling layers. 
+//Need to test residual connections for convolutional layers and pooling layers. 
 
 //The major optimization of moving everying off host. Will do at the very end. 
 
 int main(void) {
 	
-	std::vector<std::vector<double>> batched_inputs = { {1,2,3,4}, {1,2,3,4} };
-	std::vector<std::vector<double>> batched_targets = { {10,20,30,40}, {10,20,30,40} };
-	dense_layer layer_1(4, 4, activation_functions::Linear);
-	dense_layer layer_2(4, 4, activation_functions::Sigmoid);
-	dense_layer layer_3(4, 4, activation_functions::Rectified_Linear);
+	std::vector<std::vector<double>> batched_inputs = { {1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4}, {4,3,2,1,4,3,2,1,4,3,2,1,4,3,2,1} };
+	std::vector<std::vector<double>> batched_targets = { {0.5,0.5,0.1,0.4, 0.3}, {0.9, 0.4, 0.7, 0.2, 1} };
 
+	convolutional_layer layer_1(4, 1, 3, 2, 1, 1, activation_functions::Linear);
+	convolutional_layer layer_2(5, 3, 3, 3, 1, 1, activation_functions::Linear);
+	pooling_layer layer_3(5, 3, 3, 1, pooling_type::Max);
+	dense_layer layer_4(27, 5, activation_functions::Linear);
+	
 	layer_1.forward(batched_inputs);
 	layer_2.forward(&layer_1, &layer_1);
 	layer_3.forward(&layer_2);
-	
-	double loss = layer_3.loss(batched_targets);
-	double esp = 1e-3;
-	layer_1.weights[15] += esp;
-
-	layer_1.forward(batched_inputs);
-	layer_2.forward(&layer_1, &layer_1);
-	layer_3.forward(&layer_2);
-	
-	double loss_ph = layer_3.loss(batched_targets);
-	double dl_dp = (loss_ph - loss) / esp;
-
-	std::cout << dl_dp << "\n";
+	layer_4.forward(&layer_3);
 
 	/*
-	{0 = > -0.28058, 1 = > -0.56116, 2 = > -0.841741, 3 = > -1.12232}
-	{4 = > -0.165454, 5 = > -0.330908, 6 = > -0.496361, 7 = > -0.661815}
-	{8 = > 0.0678055, 9 = > 0.135611, 10 = > 0.203417, 11 = > 0.271222}
-	{12 = > 0.0455907, 13 = > 0.0911813, 14 = > 0.136772, 15 = > 0.182363}
+	layer_4.init_back_propigation(batched_targets);
+	layer_4.backward(&layer_3);
+	layer_3.backward(&layer_2);
+	layer_2.backward(&layer_1, &layer_1);
+	layer_1.backward(batched_inputs);
+	Print_Forward_Output(layer_1.d_weights, 6, 2);
+	*/
+	
+	double loss = layer_4.loss(batched_targets);
+	double esp = 1e-4;
+	layer_1.weights[12] += esp;
+	
+	layer_1.forward(batched_inputs);
+	layer_2.forward(&layer_1, &layer_1);
+	layer_3.forward(&layer_2);
+	layer_4.forward(&layer_3);
+
+	double loss_ph = layer_4.loss(batched_targets);
+	double dl_dp = (loss_ph - loss) / esp;
+	std::cout << dl_dp << '\n';
+
+	/*
+	{0 = > 2704.43, 1 = > 2559.29}
+	{2 = > 1917.98, 3 = > 1920.75}
+	{4 = > -128.641, 5 = > 122.199}
+	{6 = > 95.2715, 7 = > 308.527}
+	{8 = > 2569.46, 9 = > 2112}
+	{10 = > 2170.39, 11 = > 1755.83}
 	*/
 
 	return 0;

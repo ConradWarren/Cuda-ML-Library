@@ -115,7 +115,7 @@ public:
 	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override;
 	void virtual backward(double* batched_inputs, size_t _input_size, size_t _batch_size) override;
 	void virtual backward(layer* prev_layer) override;
-	void virtual backward(layer* prev_layer, layer* residual_layer) override {}
+	void virtual backward(layer* prev_layer, layer* residual_layer) override;
 
 	void virtual update_paramters(double learning_rate) override;
 };
@@ -154,7 +154,7 @@ public:
 	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override {}
 	void virtual backward(double* batched_inputs, size_t _input_size, size_t _batch_size) override {}
 	void virtual backward(layer* prev_layer) override;
-	void virtual backward(layer* prev_layer, layer* residual_layer) override {}
+	void virtual backward(layer* prev_layer, layer* residual_layer) override;
 
 	void virtual update_paramters(double learning_rate){}
 };

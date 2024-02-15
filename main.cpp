@@ -42,18 +42,6 @@ int main(void) {
 	layer_2.forward(&layer_1, &layer_1);
 	layer_3.forward(&layer_2);
 	
-	/*
-	layer_3.init_back_propigation(batched_targets);
-	layer_3.backward(&layer_2);
-	layer_2.backward(&layer_1, &layer_1);
-	layer_1.backward(batched_inputs);
-
-	Print_Forward_Output(layer_1.d_weights, 4, 4);
-	
-
-	return 0;
-	*/
-	
 	double loss = layer_3.loss(batched_targets);
 	double esp = 1e-3;
 	layer_1.weights[15] += esp;

@@ -21,7 +21,7 @@ public:
 	void virtual forward(double* batched_inputs, size_t _input_size, size_t _batch_size) = 0;
 	void virtual forward(double* batched_inputs_1, double* batched_inputs_2, size_t _input_size, size_t _batch_size) = 0;
 	void virtual forward(const layer* prev_layer) = 0;
-	void virtual forward(const layer* prev_layer_1, const layer* prev_layer_2) = 0;
+	void virtual forward(const layer* prev_layer, const layer* residual_layer) = 0;
 
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const = 0;
 	double virtual loss(const std::vector<int>& batched_targets) const = 0;
@@ -58,7 +58,7 @@ public:
 	void virtual forward(double* batched_inputs, size_t _input_size, size_t _batch_size) override;
 	void virtual forward(double* batched_inputs_1, double* batched_inputs_2, size_t _input_size, size_t _batch_size) override;
 	void virtual forward(const layer* prev_layer) override;
-	void virtual forward(const layer* prev_layer_1, const layer* prev_layer_2) override;
+	void virtual forward(const layer* prev_layer, const layer* residual_layer) override;
 
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
 	double virtual loss(const std::vector<int>& batched_targets) const override;
@@ -101,7 +101,7 @@ public:
 	void virtual forward(double* batched_inputs, size_t _input_size, size_t _batch_size) override;
 	void virtual forward(double* batched_inputs_1, double* batched_inputs_2, size_t _input_size, size_t _batch_size) override;
 	void virtual forward(const layer* prev_layer) override;
-	void virtual forward(const layer* prev_layer_1, const layer* prev_layer_2) override;
+	void virtual forward(const layer* prev_layer, const layer* residual_layer) override;
 
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
 	double virtual loss(const std::vector<int>& batched_targets) const override;
@@ -140,7 +140,7 @@ public:
 	void virtual forward(double* batched_inputs, size_t _input_size, size_t _batch_size) override;
 	void virtual forward(double* batched_inputs_1, double* batched_inputs_2, size_t _input_size, size_t _batch_size) override;
 	void virtual forward(const layer* prev_layer) override;
-	void virtual forward(const layer* prev_layer_1, const layer* prev_layer_2) override;
+	void virtual forward(const layer* prev_layer, const layer* residual_layer) override;
 	
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
 	double virtual loss(const std::vector<int>& batched_targets) const override;

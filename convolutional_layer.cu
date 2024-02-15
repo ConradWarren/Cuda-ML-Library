@@ -793,7 +793,7 @@ void convolutional_layer::init_back_propigation(double* batched_targets, size_t 
 		exit(error_code);
 	}
 
-	error_code = cudaMemcpy(cuda_backward_input, cuda_backward_input, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
+	error_code = cudaMemcpy(cuda_backward_input, backward_input, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
 		exit(error_code);
@@ -814,7 +814,7 @@ void convolutional_layer::init_back_propigation(double* batched_targets, size_t 
 		Cuda_Sigmoid_Activation_Backward_Pass<<<blocks, threads>>>(cuda_backward_input, cuda_forward_output, batch_size, neurons);
 	}
 	else if (layer_activation_function == activation_functions::Rectified_Linear) {
-		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(backward_input, forward_output, batch_size, neurons);
+		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(cuda_backward_input, cuda_forward_output, batch_size, neurons);
 	}
 
 	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
@@ -1093,13 +1093,13 @@ void convolutional_layer::backward(layer* prev_layer) {
 			exit(error_code);
 		}
 
-		dim3 blocks_2d(batch_size/16 + 1, inputs/16 + 1);
+		dim3 blocks_2d(inputs/16 + 1, batch_size/16 + 1);
 		dim3 threads_2d(16, 16);
 
-		if (layer_activation_function == activation_functions::Sigmoid) {
+		if (prev_layer->layer_activation_function == activation_functions::Sigmoid) {
 			Cuda_Sigmoid_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
 		}
-		else if (layer_activation_function == activation_functions::Rectified_Linear) {
+		else if (prev_layer->layer_activation_function == activation_functions::Rectified_Linear) {
 			Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
 		}
 

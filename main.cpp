@@ -32,8 +32,8 @@ int main(void) {
 	std::vector<std::vector<double>> batched_inputs = { {1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4}, {4,3,2,1,4,3,2,1,4,3,2,1,4,3,2,1} };
 	std::vector<std::vector<double>> batched_targets = { {0.5,0.5,0.1,0.4, 0.3}, {0.9, 0.4, 0.7, 0.2, 1} };
 
-	convolutional_layer layer_1(4, 1, 3, 2, 1, 1, activation_functions::Linear);
-	convolutional_layer layer_2(5, 3, 3, 3, 1, 1, activation_functions::Linear);
+	convolutional_layer layer_1(4, 1, 3, 2, 1, 1, activation_functions::Sigmoid);
+	convolutional_layer layer_2(5, 3, 3, 3, 1, 1, activation_functions::Sigmoid);
 	pooling_layer layer_3(5, 3, 3, 1, pooling_type::Max);
 	dense_layer layer_4(27, 5, activation_functions::Linear);
 	
@@ -49,28 +49,30 @@ int main(void) {
 	layer_2.backward(&layer_1, &layer_1);
 	layer_1.backward(batched_inputs);
 	Print_Forward_Output(layer_1.d_weights, 6, 2);
+		
+	return 0;
 	*/
-	
+
 	double loss = layer_4.loss(batched_targets);
 	double esp = 1e-4;
-	layer_1.weights[12] += esp;
+	layer_1.weights[11] += esp;
 	
 	layer_1.forward(batched_inputs);
 	layer_2.forward(&layer_1, &layer_1);
 	layer_3.forward(&layer_2);
 	layer_4.forward(&layer_3);
-
+	
 	double loss_ph = layer_4.loss(batched_targets);
 	double dl_dp = (loss_ph - loss) / esp;
 	std::cout << dl_dp << '\n';
 
 	/*
-	{0 = > 2704.43, 1 = > 2559.29}
-	{2 = > 1917.98, 3 = > 1920.75}
-	{4 = > -128.641, 5 = > 122.199}
-	{6 = > 95.2715, 7 = > 308.527}
-	{8 = > 2569.46, 9 = > 2112}
-	{10 = > 2170.39, 11 = > 1755.83}
+	{0 = > 0.102132, 1 = > 0.546076}
+	{2 = > 0.139688, 3 = > 0.52626}
+	{4 = > 0.348366, 5 = > 0.0794337}
+	{6 = > 0.17782, 7 = > -0.00970304}
+	{8 = > -0.113755, 9 = > -0.0959379}
+	{10 = > -0.033501, 11 = > 0.028079}
 	*/
 
 	return 0;

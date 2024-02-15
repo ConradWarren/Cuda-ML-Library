@@ -74,7 +74,7 @@ __global__ static void Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss(double*
 		int idx = batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + position_idx;
 		int position_y_idx = position_idx/input_size;
 		int position_x_idx = position_idx % input_size;
-		prev_layer_backward_input[idx] = 0.0;
+		//prev_layer_backward_input[idx] = 0.0;
 		
 		for (int y = 0; y < kernal_size; y++) {
 			
@@ -119,7 +119,7 @@ __global__ static void Cuda_Average_Pooling_Layer_Partial_Derivitive_of_Loss(dou
 		int idx = batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + position_idx;
 		int position_idx_y = position_idx / input_size;
 		int position_idx_x = position_idx % input_size;
-		prev_layer_backward_input[idx] = 0.0;
+		//prev_layer_backward_input[idx] = 0.0;
 
 		for (int y = 0; y < kernal_size; y++) {
 			
@@ -138,6 +138,26 @@ __global__ static void Cuda_Average_Pooling_Layer_Partial_Derivitive_of_Loss(dou
 			}
 		}
 
+	}
+}
+
+__global__ static void Cuda_Sigmoid_Activation_Backward_Pass(double* backward_input, double* forward_output, size_t batch_size, size_t neurons) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		backward_input[batch_idx * neurons + neuron_idx] *= forward_output[batch_idx * neurons + neuron_idx] * (1.0 - forward_output[batch_idx * neurons + neuron_idx]);
+	}
+}
+
+__global__ static void Cuda_Rectified_Linear_Activation_Backward_Pass(double* backward_input, double* forward_input, size_t batch_size, size_t neurons) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (batch_idx < batch_size && neuron_idx < neurons && forward_input[batch_idx * neurons + neuron_idx] == 0.0) {
+		backward_input[batch_idx * neurons + neuron_idx] = 0.0;
 	}
 }
 
@@ -274,7 +294,7 @@ void pooling_layer::forward(double* batched_inputs, size_t _input_size, size_t _
 	}
 
 	if (backward_input != nullptr) {
-		memset(backward_input, 0, batch_size * neurons * sizeof(double));
+		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
 	}
 
 	double* cuda_batched_input = nullptr;
@@ -306,7 +326,7 @@ void pooling_layer::forward(double* batched_inputs, size_t _input_size, size_t _
 		Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
 	else if (pooling_layer_type == pooling_type::Average) {
-		Cuda_Average_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_forward_output, batch_size, channels, input_size, input_size, output_size, stride);
+		Cuda_Average_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
 	
 	error_code = cudaGetLastError();
@@ -351,7 +371,7 @@ void pooling_layer::forward(double* batched_inputs, double* residual_inputs, siz
 	}
 
 	if (backward_input != nullptr) {
-		memset(backward_input, 0, batch_size * neurons * sizeof(double));
+		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
 	}
 
 	double* cuda_forward_output = nullptr;
@@ -684,7 +704,7 @@ void pooling_layer::backward(layer* prev_layer) {
 			std::cerr << "Error: Could not allocate memory for backward pass in pooling layer" << std::endl;
 			exit(EXIT_FAILURE);
 		}
-		memset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
+		std::fill(prev_layer->backward_input, prev_layer->backward_input + batch_size * inputs, 0.0);
 	}
 
 	double* cuda_backward_input = nullptr;
@@ -736,6 +756,17 @@ void pooling_layer::backward(layer* prev_layer) {
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: Failed to launch Pooling layer pairtial derivite of loss kernal" << std::endl;
 		exit(error_code);
+	}
+
+	if (prev_layer->layer_activation_function == activation_functions::Sigmoid) {
+		dim3 blocks_2d(inputs/16 + 1,batch_size/16 + 1);
+		dim3 threads_2d(16, 16);
+		Cuda_Sigmoid_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
+	}
+	else if (prev_layer->layer_activation_function == activation_functions::Rectified_Linear) {
+		dim3 blocks_2d(inputs / 16 + 1, batch_size / 16 + 1);
+		dim3 threads_2d(16, 16);
+		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
 	}
 
 	error_code = cudaDeviceSynchronize();

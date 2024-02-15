@@ -1046,16 +1046,7 @@ void dense_layer::backward(layer* prev_layer, layer* residual_layer) {
 		exit(EXIT_FAILURE);
 	}
 
-	backward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);
-
-	if (prev_layer->backward_input == nullptr) {
-		prev_layer->backward_input = (double*)malloc(batch_size * inputs * sizeof(double));
-		if (prev_layer->backward_input == nullptr) {
-			std::cerr << "Error: Could not allocate memory for backward pass in dense_layer" << std::endl;
-			exit(EXIT_FAILURE);
-		}
-		std::fill(prev_layer->backward_input, prev_layer->backward_input + batch_size * inputs, 0.0);
-	}
+	
 
 	if (residual_layer->backward_input == nullptr) {
 		residual_layer->backward_input = (double*)malloc(batch_size * inputs * sizeof(double));
@@ -1066,106 +1057,9 @@ void dense_layer::backward(layer* prev_layer, layer* residual_layer) {
 		std::fill(residual_layer->backward_input, residual_layer->backward_input + batch_size * neurons, 0.0);
 	}
 
-	double* cuda_weights = nullptr;
-	double* cuda_backward_input = nullptr;
-	double* cuda_prev_layer_backward_input = nullptr;
-	double* cuda_prev_layer_forward_output = nullptr;
-	cudaError error_code;
-
-	//This will be optimized after testing.
 	memcpy(residual_layer->backward_input, backward_input, batch_size * neurons * sizeof(double));
 
-	error_code = cudaMalloc((void**)&cuda_weights, neurons * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_backward_input, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_prev_layer_backward_input, batch_size * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_weights, weights, neurons * inputs * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_backward_input, backward_input, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_prev_layer_backward_input, prev_layer->backward_input, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	dim3 blocks(inputs / 16 + 1, batch_size / 16 + 1);
-	dim3 threads(16, 16);
-
-	Cuda_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_backward_input, cuda_weights, cuda_prev_layer_backward_input, batch_size, inputs, neurons);
-
-	error_code = cudaGetLastError();
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: Failed to Launch Partial Derivitive of Loss Kernal" << std::endl;
-		exit(error_code);
-	}
-
-	if (prev_layer->layer_activation_function != activation_functions::Linear) {
-
-		error_code = cudaMalloc((void**)&cuda_prev_layer_forward_output, batch_size * inputs * sizeof(double));
-		if (error_code != cudaError::cudaSuccess) {
-			std::cerr << "Error: cudaMalloc failed" << std::endl;
-			exit(error_code);
-		}
-
-		error_code = cudaMemcpy(cuda_prev_layer_forward_output, prev_layer->forward_output, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-		if (error_code != cudaError::cudaSuccess) {
-			std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-			exit(error_code);
-		}
-		
-		if (prev_layer->layer_activation_function == activation_functions::Sigmoid) {
-			Cuda_Sigmoid_Activation_Backward_Pass<<<blocks, threads>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
-		}
-		else if (prev_layer->layer_activation_function == activation_functions::Rectified_Linear) {
-			Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
-		}
-
-		error_code = cudaGetLastError();
-		if (error_code != cudaError::cudaSuccess) {
-			std::cerr << "Error: Failed to launch backward activation function kernal" << std::endl;
-			exit(error_code);
-		}
-	}
-
-	error_code = cudaDeviceSynchronize();
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(prev_layer->backward_input, cuda_prev_layer_backward_input, batch_size * inputs * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-
-	cudaFree(cuda_backward_input);
-	cudaFree(cuda_weights);
-	cudaFree(cuda_prev_layer_backward_input);
-	cudaFree(cuda_prev_layer_forward_output);
+	backward(prev_layer);
 }
 
 void dense_layer::update_paramters(double learning_rate) {

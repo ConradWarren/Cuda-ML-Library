@@ -46,9 +46,11 @@ __global__ static void Cuda_Average_Pooling_Layer_Forward_Pass(double* batched_i
 
 		for (int i = 0; i < kernal_size; i++) {
 			for (int j = 0; j < kernal_size; j++) {
-				forward_output[idx] += batched_inputs[batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + (input_position_y + i) * kernal_size + input_position_x + j] / (double)(kernal_size * kernal_size);
+				forward_output[idx] += batched_inputs[batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + (input_position_y + i) * input_size + input_position_x + j]/(double)(kernal_size * kernal_size);
 			}
 		}
+
+
 	}
 }
 

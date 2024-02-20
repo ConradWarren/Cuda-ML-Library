@@ -685,7 +685,7 @@ void dense_layer::init_back_propigation(double* batched_targets, size_t _input_s
 		Cuda_Sigmoid_Activation_Backward_Pass<<<blocks, threads>>>(backward_input, forward_output, batch_size, neurons);
 	}
 	else if (layer_activation_function == activation_functions::Rectified_Linear) {
-		Cuda_Rectified_Linear_Activation_Backward_Pass(backward_input, forward_output, batch_size, neurons);
+		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(backward_input, forward_output, batch_size, neurons);
 	}
 
 	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
@@ -913,12 +913,39 @@ void dense_layer::backward(layer* prev_layer, layer* residual_layer) {
 }
 
 void dense_layer::update_paramters(double learning_rate) {
+	
+	dim3 blocks(inputs/16 + 1, neurons/16 + 1);
+	dim3 threads(16, 16);
 
-	for (size_t i = 0; i < neurons * inputs; i++) {
-		weights[i] -= d_weights[i] * learning_rate;
+	Cuda_Graident_Decent<<<blocks, threads>>>(d_weights, d_bias, weights, bias, learning_rate, neurons, inputs);
+
+	cudaError error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch Graident Decent kernal in dense_layer" << std::endl;
+		exit(error_code);
 	}
 
-	for (size_t i = 0; i < neurons; i++) {
-		bias[i] -= d_bias[i] * learning_rate;
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
+		exit(error_code);
 	}
+}
+
+//debugging function will delete later. 
+void Print_Cuda_Forward_Output(double* input_arr, size_t batch_size, size_t neurons) {
+
+	double* host_input_arr = (double*)malloc(batch_size * neurons * sizeof(double));
+	cudaMemcpy(host_input_arr, input_arr, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
+	
+	for (int i = 0; i < batch_size; i++) {
+
+		std::cout << "{";
+		for (int j = 0; j < neurons; j++) {
+			std::cout << i * neurons + j << " = > " << host_input_arr[i * neurons + j];
+			if (j + 1 < neurons) std::cout << ", ";
+		}
+		std::cout << "}\n";
+	}
+	std::cout << "\n";
 }

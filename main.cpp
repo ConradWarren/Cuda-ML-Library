@@ -35,48 +35,33 @@ int main(void) {
 	std::vector<std::vector<double>> batched_inputs = { {1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4}, {4,3,2,1,4,3,2,1,4,3,2,1,4,3,2,1} };
 	std::vector<std::vector<double>> batched_targets = { {0.5,0.5,0.1,0.4, 0.3}, {0.9, 0.4, 0.7, 0.2, 1} };
 
-	convolutional_layer layer_1(4, 1, 3, 2, 1, 1, activation_functions::Sigmoid);
-	convolutional_layer layer_2(5, 3, 3, 3, 1, 1, activation_functions::Sigmoid);
-	pooling_layer layer_3(5, 3, 3, 1, pooling_type::Average);
-	dense_layer layer_4(27, 5, activation_functions::Linear);
-	
+	dense_layer layer_1(16, 5, activation_functions::Linear);
+	dense_layer layer_2(5, 5, activation_functions::Sigmoid);
+	dense_layer layer_3(5, 5, activation_functions::Sigmoid);
+
 	layer_1.forward(batched_inputs);
 	layer_2.forward(&layer_1, &layer_1);
 	layer_3.forward(&layer_2);
-	layer_4.forward(&layer_3);
 
-	/*
-	layer_4.init_back_propigation(batched_targets);
-	layer_4.backward(&layer_3);
-	layer_3.backward(&layer_2);
-	layer_2.backward(&layer_1, &layer_1);
-	layer_1.backward(batched_inputs);
-	Print_Forward_Output(layer_1.d_weights, 6, 2);
-	
-	return 0;
-	*/
+	std::cout << layer_3.loss(batched_targets) << '\n';
 
-	/*
-	{0 = > 0.591946, 1 = > 1.12686}
-	{2 = > 0.626061, 3 = > 1.25453}
-	{4 = > 0.11119, 5 = > 0.0530353}
-	{6 = > 0.0285237, 7 = > 0.0421917}
-	{8 = > -0.0292862, 9 = > 0.215525}
-	{10 = > 0.181844, 11 = > 0.629477}
-	*/
+	for (int i = 0; i < 10000; i++) {
 
-	double loss = layer_4.loss(batched_targets);
-	double esp = 1e-3;
-	layer_1.weights[11] += esp;
-	
-	layer_1.forward(batched_inputs);
-	layer_2.forward(&layer_1, &layer_1);
-	layer_3.forward(&layer_2);
-	layer_4.forward(&layer_3);
-	
-	double loss_ph = layer_4.loss(batched_targets);
-	double dl_dp = (loss_ph - loss) / esp;
-	std::cout << dl_dp << '\n';
+		layer_3.init_back_propigation(batched_targets);
+		layer_3.backward(&layer_2);
+		layer_2.backward(&layer_1, &layer_1);
+		layer_1.backward(batched_inputs);
+
+		layer_1.update_paramters(1e-3);
+		layer_2.update_paramters(1e-3);
+		layer_3.update_paramters(1e-3);
+
+		layer_1.forward(batched_inputs);
+		layer_2.forward(&layer_1, &layer_1);
+		layer_3.forward(&layer_2);
+		std::cout << layer_3.loss(batched_targets) << '\n';
+	}
+
 
 	return 0;
 }

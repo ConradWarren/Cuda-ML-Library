@@ -2,6 +2,9 @@
 
 #include <vector>
 
+//debuging function will delete later.
+void Print_Cuda_Forward_Output(double* input_arr, size_t batch_size, size_t neurons);
+
 enum class activation_functions{Linear ,Rectified_Linear, Sigmoid, Softmax};
 enum class pooling_type{Max, Average};
 

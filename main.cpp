@@ -22,10 +22,13 @@ void Print_Forward_Output(double* arr, size_t batch_size, size_t neurons) {
 //Implement Softmax + do math
 //Rename Loss functions / Init_Loss functions to proper names. Cross_Entropy_Mean_Loss ect. 
 //Optimize kernals (specifically the inputs).
-//Need to implement residual backward pass for convolutional and pooling layers. 
-//Need to test residual connections for convolutional layers and pooling layers. 
+//Add training optimizers.
 
 //The major optimization of moving everying off host. Will do at the very end. 
+
+//4d Convolutions?
+
+//Not sure if I want to add a model class or not, will decide later. 
 
 int main(void) {
 	

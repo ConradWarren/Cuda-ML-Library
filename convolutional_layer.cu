@@ -192,6 +192,22 @@ __global__ static void Cuda_Matrix_Addition(double* residual_inputs, double* for
 	}
 }
 
+__global__ static void Cuda_Graident_Decent(double* d_weights, double* d_bias, double* weights, double* bias, double learning_rate, size_t kernals, size_t channels, size_t kernal_size) {
+	
+	size_t kernal_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
+
+	if (kernal_idx < kernals, channel_idx < channels, position_idx < (kernal_size * kernal_size)) {
+
+		weights[kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx] -= d_weights[kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx] * learning_rate;
+		if (channel_idx == 0 && position_idx == 0) {
+			bias[kernal_idx] -= d_bias[kernal_idx] * learning_rate;
+		}
+	}
+
+}
+
 convolutional_layer::convolutional_layer() { 
 	weights = nullptr;
 	bias = nullptr;
@@ -225,47 +241,100 @@ convolutional_layer::convolutional_layer(size_t _input_size, size_t _channels, s
 	neurons = output_size * output_size * kernals;
 	inputs = input_size * input_size * channels;
 
-	weights = (double*)malloc(kernal_size * kernal_size * channels * kernals * sizeof(double));
-	d_weights = (double*)malloc(kernal_size * kernal_size * channels * kernals * sizeof(double));
-	bias = (double*)malloc(kernals * sizeof(double));
-	d_bias = (double*)malloc(kernals * sizeof(double));
+	cudaError error_code;
 
+	error_code = cudaMalloc((void**)&d_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemset(d_weights, 0, kernals * channels * kernal_size * kernal_size * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr <<"Error: cudaMemset failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMalloc((void**)&bias, kernals * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemset(bias, 0, kernals * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMalloc((void**)&weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
+	if (error_code != cudaError::cudaSuccess){
+		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	
 	forward_output = nullptr;
 	backward_input = nullptr;
 	layer_activation_function = _layer_activation_function;
 
-	if (weights == nullptr || d_weights == nullptr || bias == nullptr || d_bias == nullptr) {
-		std::cerr << "Error: Could not allocate memory in convolutional layer" << std::endl;
-		exit(EXIT_FAILURE);
-	}  
+	double* temp_weights = (double*)malloc(kernals * channels * kernal_size * kernal_size * sizeof(double));
+	double* temp_bias = (double*)malloc(kernals * sizeof(double));
 
+	if (temp_weights == nullptr || temp_bias == nullptr) {
+		std::cerr << "Error: Failed to allocate memory in convolutional_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+	 
 	std::uniform_real_distribution<double> distribution(-1.0, 1.0);
 	std::mt19937 generator;
 
 	for (size_t i = 0; i < kernals; i++) {
-		bias[i] = distribution(generator);
+		temp_bias[i] = distribution(generator);
 		for (size_t j = 0; j < channels * kernal_size * kernal_size; j++) {
-			weights[i * kernal_size * kernal_size * channels + j] = distribution(generator);
+			temp_weights[i * kernal_size * kernal_size * channels + j] = distribution(generator);
 		}
-	}	
+	}
+
+	error_code = cudaMemcpy(weights, temp_weights, kernals * channels * kernal_size * kernal_size * sizeof(double), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to device failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(bias, temp_bias, kernals * sizeof(double), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Errror: cudaMemcpy to device failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	free(temp_weights);
+	free(temp_bias);
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
 }
 
 convolutional_layer::~convolutional_layer() {
-	free(weights);
-	free(d_weights);
-	free(bias);
-	free(d_bias);
-	free(forward_output);
-	free(backward_input);
+	cudaFree(weights);
+	cudaFree(d_weights);
+	cudaFree(bias);
+	cudaFree(d_bias);
+	cudaFree(forward_output);
+	cudaFree(backward_input);
 }
 
 void convolutional_layer::forward(const std::vector<std::vector<double>>& batched_inputs) {
 	
-	double* input_arr = (double*)malloc(batched_inputs.size() * inputs * sizeof(double));
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batched_inputs.size() * inputs * sizeof(double));
 
-	if (input_arr == nullptr) {
-		std::cerr << "Error: Could not allocate memory in convolutional_layer for forward pass" << std::endl;
-		exit(EXIT_FAILURE);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+		exit(error_code);
 	}
 
 	for (size_t i = 0; i < batched_inputs.size(); i++) {
@@ -275,19 +344,24 @@ void convolutional_layer::forward(const std::vector<std::vector<double>>& batche
 			exit(EXIT_FAILURE);
 		}
 		
-		memcpy(input_arr + i * inputs, batched_inputs[i].data(), inputs * sizeof(double));
+		error_code = cudaMemcpy(input_arr + i * inputs, batched_inputs[i].data(), inputs * sizeof(double), cudaMemcpyHostToDevice);
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemcpy to deivce failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
 	forward(input_arr, inputs, batched_inputs.size());
+	cudaFree(input_arr);
 }
 
 void convolutional_layer::forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) {
 	
-	double* input_arr = (double*)malloc(batched_inputs.size() * inputs * sizeof(double));
-	
-	if (input_arr == nullptr) {
-		std::cerr << "Error: Could not allocate memory in convolutional_layer for forward pass" << std::endl;
-		exit(EXIT_FAILURE);
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, inputs * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+		exit(error_code);
 	}
 
 	for (size_t i = 0; i < batched_inputs.size(); i++) {
@@ -310,13 +384,16 @@ void convolutional_layer::forward(const std::vector<std::vector<std::vector<std:
 					exit(EXIT_FAILURE);
 				}
 
-				memcpy(input_arr + z * input_size + j * input_size * input_size + i * channels * input_size * input_size, batched_inputs[i][j][z].data(), input_size * sizeof(double));
+				error_code = cudaMemcpy(input_arr + z * input_size + j * input_size * input_size + i * channels * input_size * input_size, batched_inputs[i][j][z].data(), input_size * sizeof(double), cudaMemcpyHostToDevice);
+				if (error_code != cudaError::cudaSuccess) {
+					std::cerr << "Error: cudaMemcpy to device failed in convolutional_layer" << std::endl;
+					exit(error_code);
+				}
 			}
 		}
 	}
 	forward(input_arr, inputs, batched_inputs.size());
-
-	free(input_arr);
+	cudaFree(input_arr);
 }
 
 void convolutional_layer::forward(double* batched_inputs, size_t _input_size, size_t _batch_size) {
@@ -326,78 +403,35 @@ void convolutional_layer::forward(double* batched_inputs, size_t _input_size, si
 		exit(EXIT_FAILURE);
 	}
 
+	cudaError error_code;
+
 	if (batch_size != _batch_size) {
-		if (forward_output != nullptr) free(forward_output);
-		forward_output = (double*)malloc(_batch_size * neurons * sizeof(double));
 		
-		if (backward_input != nullptr) {
-			free(backward_input);
-			backward_input = nullptr;
-		}
+		cudaFree(forward_output);
+		cudaFree(backward_input);
+		backward_input = nullptr;
 
-		if (forward_output == nullptr) {
-			std::cerr << "Error: Could not allocate memory in convolutional layer for forward pass" << std::endl;
-			exit(EXIT_FAILURE);
+		error_code = cudaMalloc((void**)&forward_output, _batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
 		}
-
+		
 		batch_size = _batch_size;
 	}
 
 	if (backward_input != nullptr) {
-		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
+		error_code = cudaMemset(backward_input, 0, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
-	double* cuda_batched_inputs = nullptr;
-	double* cuda_weights = nullptr;
-	double* cuda_bias = nullptr;
-	double* cuda_forward_output = nullptr;
-	cudaError error_code;
-
-	error_code = cudaMalloc((void**)&cuda_batched_inputs, batch_size * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_bias, kernals * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_forward_output, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_batched_inputs, batched_inputs, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_weights, weights, kernals * channels * kernal_size * kernal_size * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_bias, bias, kernals * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
+	
 	dim3 blocks(batch_size/6 + 1, kernals/6 + 1, (output_size * output_size)/6 + 1);
 	dim3 threads(6, 6, 6);
-	Cuda_Convolutional_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_inputs, cuda_weights, cuda_bias, cuda_forward_output, batch_size, kernals, kernal_size, padding, output_size, channels, input_size, stride);
+	Cuda_Convolutional_Layer_Forward_Pass<<<blocks, threads>>>(batched_inputs, weights, bias, forward_output, batch_size, kernals, kernal_size, padding, output_size, channels, input_size, stride);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -408,12 +442,12 @@ void convolutional_layer::forward(double* batched_inputs, size_t _input_size, si
 	if (layer_activation_function == activation_functions::Sigmoid) {
 		dim3 blocks_2d(neurons/16 + 1, batch_size/16 + 1);
 		dim3 threads_2d(16, 16);
-		Cuda_Sigmoid_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(cuda_forward_output, batch_size, neurons);
+		Cuda_Sigmoid_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
 	}
 	else if (layer_activation_function == activation_functions::Rectified_Linear) {
 		dim3 blocks_2d(neurons/16 + 1, batch_size/16 + 1);
 		dim3 threads_2d(16, 16);
-		Cuda_Rectified_Linear_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(cuda_forward_output, batch_size, neurons);
+		Cuda_Rectified_Linear_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
 	}
 	
 	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
@@ -426,17 +460,6 @@ void convolutional_layer::forward(double* batched_inputs, size_t _input_size, si
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-
-	error_code = cudaMemcpy(forward_output, cuda_forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-
-	cudaFree(cuda_batched_inputs);
-	cudaFree(cuda_weights);
-	cudaFree(cuda_bias);
-	cudaFree(cuda_forward_output);
 }
 
 void convolutional_layer::forward(double* batched_inputs, double* residual_inputs, size_t _input_size, size_t _batch_size) {
@@ -446,75 +469,35 @@ void convolutional_layer::forward(double* batched_inputs, double* residual_input
 		exit(EXIT_FAILURE);
 	}
 
+	cudaError error_code;
+
 	if (_batch_size != batch_size) {
-		free(forward_output);
-		free(backward_input);
+		cudaFree(forward_output);
+		cudaFree(backward_input);
 		backward_input = nullptr;
-		forward_output = (double*)malloc(_batch_size * neurons * sizeof(double));
-		if (forward_output == nullptr) {
-			std::cerr << "Error: Could not allocate memory for forward pass in dense_layer" << std::endl;
-			exit(EXIT_FAILURE);
+
+		error_code = cudaMalloc((void**)&forward_output, _batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
 		}
+
 		batch_size = _batch_size;
 	}
 
 	if (backward_input != nullptr) {
-		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
+		error_code = cudaMemset(backward_input, 0, batch_size * neurons * sizeof(double));
+		if(error_code != cudaError::cudaSuccess){
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
-	double* cuda_batched_inputs = nullptr;
-	double* cuda_residual_inputs = nullptr;
-	double* cuda_forward_output = nullptr;
-	double* cuda_weights = nullptr;
-	double* cuda_bias = nullptr;
-	cudaError error_code;
-
-	error_code = cudaMalloc((void**)&cuda_batched_inputs, batch_size * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_forward_output, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_bias, kernals * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_batched_inputs, batched_inputs, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_weights, weights, kernals * channels * kernal_size * kernal_size * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_bias, bias, kernals * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
 
 	dim3 blocks(batch_size/6 + 1, kernals/6 + 1, (output_size * output_size)/6 + 1);
 	dim3 threads(6, 6, 6);
 
-	Cuda_Convolutional_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_inputs, cuda_weights, cuda_bias, cuda_forward_output, batch_size, kernals, kernal_size, padding, output_size, channels, input_size, stride);
+	Cuda_Convolutional_Layer_Forward_Pass<<<blocks, threads>>>(batched_inputs, weights, bias, forward_output, batch_size, kernals, kernal_size, padding, output_size, channels, input_size, stride);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -522,22 +505,10 @@ void convolutional_layer::forward(double* batched_inputs, double* residual_input
 		exit(error_code);
 	}
 
-	error_code = cudaMalloc((void**)&cuda_residual_inputs, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_residual_inputs, residual_inputs, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
 	dim3 blocks_2d(neurons / 16 + 1, batch_size / 16 + 1);
 	dim3 threads_2d(16, 16);
 
-	Cuda_Matrix_Addition<<<blocks_2d, threads_2d>>>(cuda_residual_inputs, cuda_forward_output, batch_size, neurons);
+	Cuda_Matrix_Addition<<<blocks_2d, threads_2d>>>(residual_inputs, forward_output, batch_size, neurons);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -546,10 +517,10 @@ void convolutional_layer::forward(double* batched_inputs, double* residual_input
 	}
 
 	if (layer_activation_function == activation_functions::Sigmoid) {
-		Cuda_Sigmoid_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(cuda_forward_output, batch_size, neurons);
+		Cuda_Sigmoid_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
 	}
 	else if (layer_activation_function == activation_functions::Rectified_Linear) {
-		Cuda_Rectified_Linear_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(cuda_forward_output, batch_size, neurons);
+		Cuda_Rectified_Linear_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
 	}
 	else if (layer_activation_function == activation_functions::Softmax) {
 		//TODO: Implement softmax.
@@ -565,18 +536,6 @@ void convolutional_layer::forward(double* batched_inputs, double* residual_input
 		std::cerr << "Error: cudaDeviceSynchronice failed" << std::endl;
 		exit(error_code);
 	}
-
-	error_code = cudaMemcpy(forward_output, cuda_forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-
-	cudaFree(cuda_forward_output);
-	cudaFree(cuda_batched_inputs);
-	cudaFree(cuda_bias);
-	cudaFree(cuda_weights);
-	cudaFree(cuda_residual_inputs);
 }
 
 void convolutional_layer::forward(const layer* prev_layer) {
@@ -608,6 +567,18 @@ double convolutional_layer::loss(const std::vector<std::vector<double>>& batched
 	}
 	
 	double result = 0.0;
+	double* host_forward_output = (double*)malloc(batch_size * neurons * sizeof(double));
+
+	if (host_forward_output == nullptr) {
+		std::cerr << "Error: Failed to allocate memory in convolutional_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	cudaError error_code = cudaMemcpy(host_forward_output, forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to host failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
 
 	for (size_t i = 0; i < batch_size; i++) {
 		
@@ -617,10 +588,10 @@ double convolutional_layer::loss(const std::vector<std::vector<double>>& batched
 		}
 
 		for (size_t j = 0; j < neurons; j++) {
-			result += ((forward_output[i * neurons + j] - batched_targets[i][j]) * (forward_output[i * neurons + j] - batched_targets[i][j])) / (double)(neurons * batch_size);
+			result += ((host_forward_output[i * neurons + j] - batched_targets[i][j]) * (host_forward_output[i * neurons + j] - batched_targets[i][j])) / (double)(neurons * batch_size);
 		}
 	}
-	
+	free(host_forward_output);
 	return result;
 }
 double convolutional_layer::loss(const std::vector<int>& batched_targets) const {
@@ -641,7 +612,18 @@ double convolutional_layer::loss(const std::vector<std::vector<std::vector<std::
 	}
 
 	double result = 0.0;
-	
+	double* host_forward_output = (double*)malloc(batch_size * neurons * sizeof(double));
+	if (host_forward_output == nullptr) {
+		std::cerr << "Error: Failed to allocate memory in convolutional_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	cudaError error_code = cudaMemcpy(host_forward_output, forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpy to host failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
 	for (size_t i = 0; i < batch_size; i++) {
 
 		if (batched_targets[i].size() != kernals) {
@@ -664,12 +646,12 @@ double convolutional_layer::loss(const std::vector<std::vector<std::vector<std::
 				}
 				
 				for (size_t x = 0; x < output_size; x++) {
-					result += ((forward_output[i * neurons + j * output_size * output_size + y * output_size + x] - batched_targets[i][j][y][x]) * (forward_output[i * neurons + j * output_size * output_size + y * output_size + x] - batched_targets[i][j][y][x])) / (double)(neurons * batch_size);	
+					result += ((host_forward_output[i * neurons + j * output_size * output_size + y * output_size + x] - batched_targets[i][j][y][x]) * (host_forward_output[i * neurons + j * output_size * output_size + y * output_size + x] - batched_targets[i][j][y][x])) / (double)(neurons * batch_size);	
 				}
 			}
 		}
 	}
-
+	free(host_forward_output);
 	return result;
 }
 
@@ -680,11 +662,11 @@ void convolutional_layer::init_back_propigation(const std::vector<std::vector<do
 		exit(EXIT_FAILURE);
 	}
 
-	double* input_arr = (double*)malloc(batch_size * neurons * sizeof(double));
-
-	if (input_arr == nullptr) {
-		std::cerr << "Error: Could not allocted memory in convolutional_layer" << std::endl;
-		exit(EXIT_FAILURE);
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * neurons * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+		exit(error_code);
 	}
 
 	for (size_t i = 0; i < batch_size; i++) {
@@ -694,10 +676,15 @@ void convolutional_layer::init_back_propigation(const std::vector<std::vector<do
 			exit(EXIT_FAILURE);
 		}
 
-		memcpy(input_arr + i * neurons, batched_targets[i].data(), neurons * sizeof(double));
+		error_code = cudaMemcpy(input_arr + i * neurons, batched_targets[i].data(), neurons * sizeof(double), cudaMemcpyHostToDevice);
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemcpy to device failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
 	init_back_propigation(input_arr, neurons, batch_size);
+	cudaFree(input_arr);
 }
 void convolutional_layer::init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) {
 
@@ -706,13 +693,12 @@ void convolutional_layer::init_back_propigation(const std::vector<std::vector<st
 		exit(EXIT_FAILURE);
 	}
 
-	double* input_arr = (double*)malloc(batch_size * neurons * sizeof(double));
-
-	if (input_arr == nullptr) {
-		std::cerr << "Error: Could not allocted memory in convolutional_layer" << std::endl;
-		exit(EXIT_FAILURE);
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * neurons * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed" << std::endl;
+		exit(error_code);
 	}
-
 
 	for (size_t i = 0; i < batch_size; i++) {
 
@@ -735,12 +721,17 @@ void convolutional_layer::init_back_propigation(const std::vector<std::vector<st
 					exit(EXIT_FAILURE);
 				}
 
-				memcpy(input_arr + i * neurons + j * output_size * output_size + y * output_size, batched_targets[i][j][y].data(), output_size * sizeof(double));
+				error_code = cudaMemcpy(input_arr + i * neurons + j * output_size * output_size + y * output_size, batched_targets[i][j][y].data(), output_size * sizeof(double), cudaMemcpyHostToDevice);
+				if (error_code != cudaError::cudaSuccess) {
+					std::cerr << "Error: cudaMemcpy to device failed in convolutional_layer" << std::endl;
+					exit(error_code);
+				}
 			}
 		}
 	}
 
 	init_back_propigation(input_arr, neurons, batch_size);
+	cudaFree(input_arr);
 }
 void convolutional_layer::init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) {
 
@@ -749,60 +740,25 @@ void convolutional_layer::init_back_propigation(double* batched_targets, size_t 
 		exit(EXIT_FAILURE);
 	}
 
-	if (backward_input == nullptr) {
-		backward_input = (double*)malloc(batch_size * neurons * sizeof(double));
-		if (backward_input == nullptr) {
-			std::cerr << "Error: Unable to allocate memory for backpropigation in convolutional_layer" << std::endl;
-			exit(EXIT_FAILURE);
-		}
-		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
-	}
-
-	double* cuda_forward_output = nullptr;
-	double* cuda_batched_targets = nullptr;
-	double* cuda_backward_input = nullptr;
 	cudaError error_code;
 
-	error_code = cudaMalloc((void**)&cuda_forward_output, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_batched_targets, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_backward_input, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_forward_output, forward_output, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_batched_targets, batched_targets, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_backward_input, backward_input, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
+	if (backward_input == nullptr) {
+		error_code = cudaMalloc((void**)&backward_input, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+		error_code = cudaMemset(backward_input, 0, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
 	dim3 blocks(neurons / 16 + 1, batch_size / 16 + 1);
 	dim3 threads(16, 16);
 	
-	Cuda_Convolutional_Layer_Init_Back_Propigation<<<blocks, threads>>>(cuda_batched_targets, cuda_forward_output, cuda_backward_input, batch_size, neurons);
+	Cuda_Convolutional_Layer_Init_Back_Propigation<<<blocks, threads>>>(batched_targets, forward_output, backward_input, batch_size, neurons);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -811,10 +767,10 @@ void convolutional_layer::init_back_propigation(double* batched_targets, size_t 
 	}
 
 	if (layer_activation_function == activation_functions::Sigmoid) {
-		Cuda_Sigmoid_Activation_Backward_Pass<<<blocks, threads>>>(cuda_backward_input, cuda_forward_output, batch_size, neurons);
+		Cuda_Sigmoid_Activation_Backward_Pass<<<blocks, threads>>>(backward_input, forward_output, batch_size, neurons);
 	}
 	else if (layer_activation_function == activation_functions::Rectified_Linear) {
-		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(cuda_backward_input, cuda_forward_output, batch_size, neurons);
+		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(backward_input, forward_output, batch_size, neurons);
 	}
 
 	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
@@ -827,16 +783,6 @@ void convolutional_layer::init_back_propigation(double* batched_targets, size_t 
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-	
-	error_code = cudaMemcpy(backward_input, cuda_backward_input, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-
-	cudaFree(cuda_forward_output);
-	cudaFree(cuda_batched_targets);
-	cudaFree(cuda_backward_input);
 }
 
 void convolutional_layer::backward(const std::vector<std::vector<double>>& batched_inputs) {
@@ -846,11 +792,11 @@ void convolutional_layer::backward(const std::vector<std::vector<double>>& batch
 		exit(EXIT_FAILURE);
 	}
 
-	double* input_arr = (double*)malloc(batch_size * inputs * sizeof(double));
-
-	if (input_arr == nullptr) {
-		std::cerr << "Error: Could not allocate memory in convolutional layer for backpropigation" << std::endl;
-		exit(EXIT_FAILURE);
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * inputs * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+		exit(error_code);
 	}
 
 	for (size_t i = 0; i < batch_size; i++) {
@@ -860,12 +806,15 @@ void convolutional_layer::backward(const std::vector<std::vector<double>>& batch
 			exit(EXIT_FAILURE);
 		}
 
-		memcpy(input_arr + i * inputs, batched_inputs[i].data(), inputs * sizeof(double));
+		error_code = cudaMemcpy(input_arr + i * inputs, batched_inputs[i].data(), inputs * sizeof(double), cudaMemcpyHostToDevice);
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemcpy failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
 	backward(input_arr, inputs, batch_size);
-
-	free(input_arr);
+	cudaFree(input_arr);
 }
 
 void convolutional_layer::backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) {
@@ -875,11 +824,11 @@ void convolutional_layer::backward(const std::vector<std::vector<std::vector<std
 		exit(EXIT_FAILURE);
 	}
 
-	double* input_arr = (double*)malloc(batch_size * inputs * sizeof(double));
-
-	if (input_arr == nullptr) {
-		std::cerr << "Error: Could not allocate memory in convolutional layer for backpropigation" << std::endl;
-		exit(EXIT_FAILURE);
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * inputs * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+		exit(error_code);
 	}
 
 	for (size_t i = 0; i < batch_size; i++) {
@@ -903,13 +852,17 @@ void convolutional_layer::backward(const std::vector<std::vector<std::vector<std
 					exit(EXIT_FAILURE);
 				}
 
-				memcpy(input_arr + i * inputs + j * input_size * input_size + y * input_size, batched_inputs[i][j][y].data(), input_size * sizeof(double));
+				error_code = cudaMemcpy(input_arr + i * inputs + j * input_size * input_size + y * input_size, batched_inputs[i][j][y].data(), input_size * sizeof(double), cudaMemcpyHostToDevice);
+				if (error_code != cudaError::cudaSuccess) {
+					std::cerr << "Error: cudaMemcpy to deivce failed in convolutional_layer" << std::endl;
+					exit(error_code);
+				}
 			}
 		}
 	}
 	  
 	backward(input_arr, inputs, batch_size);
-	free(input_arr);
+	cudaFree(input_arr);
 }
 void convolutional_layer::backward(double* batched_inputs, size_t _input_size, size_t _batch_size) {
 
@@ -923,52 +876,11 @@ void convolutional_layer::backward(double* batched_inputs, size_t _input_size, s
 		exit(EXIT_FAILURE);
 	}
 
-	double* cuda_d_weights = nullptr;
-	double* cuda_d_bias = nullptr;
-	double* cuda_batched_input = nullptr;
-	double* cuda_backward_input = nullptr;
 	cudaError error_code;
-
-	error_code = cudaMalloc((void**)&cuda_d_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_d_bias, kernals * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_batched_input, batch_size * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_backward_input, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_batched_input, batched_inputs, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_backward_input, backward_input, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
 	dim3 blocks(kernals/6 + 1, channels/6 + 1, (kernal_size * kernal_size)/6 + 1);
 	dim3 threads(6, 6, 6);
 
-	Cuda_Convolutional_Layer_First_Backward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_backward_input, cuda_d_weights, batch_size, kernals, channels, kernal_size, input_size, output_size, stride, padding);
+	Cuda_Convolutional_Layer_First_Backward_Pass<<<blocks, threads>>>(batched_inputs, backward_input, d_weights, batch_size, kernals, channels, kernal_size, input_size, output_size, stride, padding);
 	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -976,7 +888,7 @@ void convolutional_layer::backward(double* batched_inputs, size_t _input_size, s
 		exit(error_code);
 	}
 
-	Cuda_Convolutional_Layer_Second_Backward_Pass <<<kernals / 16 + 1, 16 >> > (cuda_backward_input, cuda_d_bias, batch_size, kernals, output_size);
+	Cuda_Convolutional_Layer_Second_Backward_Pass<<<kernals / 16 + 1, 16>>>(backward_input, d_bias, batch_size, kernals, output_size);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -989,23 +901,6 @@ void convolutional_layer::backward(double* batched_inputs, size_t _input_size, s
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-
-	error_code = cudaMemcpy(d_weights, cuda_d_weights, kernals * channels * kernal_size * kernal_size * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(d_bias, cuda_d_bias, kernals * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-	
-	cudaFree(cuda_d_weights);
-	cudaFree(cuda_d_bias);
-	cudaFree(cuda_backward_input);
-	cudaFree(cuda_batched_input);
 }
 void convolutional_layer::backward(layer* prev_layer) {
 
@@ -1016,62 +911,33 @@ void convolutional_layer::backward(layer* prev_layer) {
 	
 	backward(prev_layer->forward_output, prev_layer->neurons, prev_layer->batch_size);
 
-	if (prev_layer->backward_input == nullptr) {
-
-		prev_layer->backward_input = (double*)malloc(batch_size * inputs * sizeof(double));
-		if (prev_layer->backward_input == nullptr) {
-			std::cerr << "Error: Could not allocate memory for backpropigation" << std::endl;
-			exit(EXIT_FAILURE);
-		}
-		std::fill(prev_layer->backward_input, prev_layer->backward_input + batch_size * inputs, 0.0);
-	}
-
-	double* cuda_weights = nullptr;
-	double* cuda_backward_input = nullptr;
-	double* cuda_prev_layer_backward_input = nullptr;
-	double* cuda_prev_layer_forward_output = nullptr;
 	cudaError error_code;
 
-	error_code = cudaMalloc((void**)&cuda_weights, kernals * channels * kernal_size * kernal_size * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
+	if (prev_layer->backward_input == nullptr) {
 
-	error_code = cudaMalloc((void**)&cuda_backward_input, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
+		error_code = cudaMalloc((void**)&prev_layer->backward_input, batch_size * inputs * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+		
+		error_code = cudaMemset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
 
-	error_code = cudaMalloc((void**)&cuda_prev_layer_backward_input, batch_size * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_weights, weights, kernals * channels * kernal_size * kernal_size * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_backward_input, backward_input, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_prev_layer_backward_input, prev_layer->backward_input, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
+		error_code = cudaDeviceSynchronize();
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 	
 	dim3 blocks(batch_size/6 + 1, channels/6 + 1, (input_size * input_size)/6 + 1);
 	dim3 threads(6, 6, 6);
 	
-	Cuda_Convolution_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_backward_input, cuda_weights, cuda_prev_layer_backward_input, batch_size, kernals, channels, kernal_size, input_size, padding, stride, output_size);
+	Cuda_Convolution_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(backward_input, weights, prev_layer->backward_input, batch_size, kernals, channels, kernal_size, input_size, padding, stride, output_size);
 	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -1081,26 +947,19 @@ void convolutional_layer::backward(layer* prev_layer) {
 	
 	if (prev_layer->layer_activation_function != activation_functions::Linear) {
 
-		error_code = cudaMalloc((void**)&cuda_prev_layer_forward_output, batch_size * inputs * sizeof(double));
-		if (error_code != cudaError::cudaSuccess) {
-			std::cerr << "Error: cudaMalloc failed" << std::endl;
-			exit(error_code);
-		}
-
-		error_code = cudaMemcpy(cuda_prev_layer_forward_output, prev_layer->forward_output, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-		if (error_code != cudaError::cudaSuccess) {
-			std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-			exit(error_code);
-		}
-
 		dim3 blocks_2d(inputs/16 + 1, batch_size/16 + 1);
 		dim3 threads_2d(16, 16);
 
+		if (prev_layer->forward_output == nullptr) {
+			std::cerr << "Error: prev_layer not initialized" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+
 		if (prev_layer->layer_activation_function == activation_functions::Sigmoid) {
-			Cuda_Sigmoid_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
+			Cuda_Sigmoid_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(prev_layer->backward_input, prev_layer->forward_output, batch_size, inputs);
 		}
 		else if (prev_layer->layer_activation_function == activation_functions::Rectified_Linear) {
-			Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
+			Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(prev_layer->backward_input, prev_layer->forward_output, batch_size, inputs);
 		}
 
 		error_code = cudaGetLastError();
@@ -1115,17 +974,6 @@ void convolutional_layer::backward(layer* prev_layer) {
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-	
-	error_code = cudaMemcpy(prev_layer->backward_input, cuda_prev_layer_backward_input, batch_size * inputs * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-
-	cudaFree(cuda_weights);
-	cudaFree(cuda_backward_input);
-	cudaFree(cuda_prev_layer_backward_input);
-	cudaFree(cuda_prev_layer_forward_output);
 }
 
 void convolutional_layer::backward(layer* prev_layer, layer* residual_layer) {
@@ -1135,26 +983,47 @@ void convolutional_layer::backward(layer* prev_layer, layer* residual_layer) {
 		exit(EXIT_FAILURE);
 	}
 
+	cudaError error_code;
+
 	if (residual_layer->backward_input == nullptr) {
-		residual_layer->backward_input = (double*)malloc(batch_size * neurons * sizeof(double));
-		if (residual_layer->backward_input == nullptr) {
-			std::cerr << "Error: Could not allocate memory for backward pass in residual_layer" << std::endl;
-			exit(EXIT_FAILURE);
+		error_code = cudaMalloc((void**)&residual_layer->backward_input, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed" << std::endl;
+			exit(error_code);
 		}
 	}
 
-	memcpy(residual_layer->backward_input, backward_input, batch_size * neurons * sizeof(double));
+	error_code = cudaMemcpy(residual_layer->backward_input, backward_input, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpyDeviceToDevice failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
 
 	backward(prev_layer);	
 }
 
 void convolutional_layer::update_paramters(double learning_rate) {
 
-	for (int i = 0; i < kernals * channels * kernal_size * kernal_size; i++) {
-		weights[i] -= d_weights[i] * learning_rate;
+	dim3 blocks(kernals / 6 + 1, channels / 6 + 1, (kernal_size * kernal_size) / 6 + 1);
+	dim3 threads(6, 6, 6);
+
+	Cuda_Graident_Decent<<<blocks, threads>>>(d_weights, d_bias, weights, bias, learning_rate, kernals, channels, kernal_size);
+
+	cudaError error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch graident decent kernal in convolutional_layer" << std::endl;
+		exit(error_code);
 	}
-	
-	for (int i = 0; i < kernals; i++) {
-		bias[i] -= d_bias[i] * learning_rate;
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+		exit(error_code);
 	}
 }

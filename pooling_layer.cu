@@ -121,8 +121,7 @@ __global__ static void Cuda_Average_Pooling_Layer_Partial_Derivitive_of_Loss(dou
 		int idx = batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + position_idx;
 		int position_idx_y = position_idx / input_size;
 		int position_idx_x = position_idx % input_size;
-		//prev_layer_backward_input[idx] = 0.0;
-
+		
 		for (int y = 0; y < kernal_size; y++) {
 			
 			if ((position_idx_y - y) < 0 || (position_idx_y - y - 1 + kernal_size) >= input_size || (position_idx_y - y) % stride != 0) {
@@ -209,17 +208,17 @@ pooling_layer::pooling_layer(size_t _input_size, size_t _channels, size_t _kerna
 }
 
 pooling_layer::~pooling_layer() {
-	free(forward_output);
-	free(backward_input);
+	cudaFree(forward_output);
+	cudaFree(backward_input);
 }
 
 void pooling_layer::forward(const std::vector<std::vector<double>>& batched_inputs) {
 
-	double* input_arr = (double*)malloc(batched_inputs.size() * inputs * sizeof(double));
-
-	if (input_arr == nullptr) {
-		std::cerr << "Error: Unable to allocated memory in pooling layer for forward pass" << std::endl;
-		exit(EXIT_FAILURE);
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batched_inputs.size() * inputs * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+		exit(error_code);
 	}
 
 	for (int i = 0; i < batched_inputs.size(); i++) {
@@ -229,19 +228,23 @@ void pooling_layer::forward(const std::vector<std::vector<double>>& batched_inpu
 			exit(EXIT_FAILURE);
 		}
 		
-		memcpy(input_arr + i * inputs, batched_inputs[i].data(), inputs * sizeof(double));
+		error_code = cudaMemcpy(input_arr + i * inputs, batched_inputs[i].data(), inputs * sizeof(double), cudaMemcpyHostToDevice);
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemcpyHostToDevice failed in pooling_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
 	forward(input_arr, inputs, batched_inputs.size());
-	free(input_arr);
+	cudaFree(input_arr);
 }
 void pooling_layer::forward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) {
 
-	double* input_arr = (double*)malloc(batched_inputs.size() * channels * input_size * input_size * sizeof(double));
-
-	if (input_arr == nullptr) {
-		std::cerr << "Error: Unable to allocated memory in pooling layer for forward pass" << std::endl;
-		exit(EXIT_FAILURE);
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batched_inputs.size() * channels * input_size * input_size * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+		exit(error_code);
 	}
 
 	for (int i = 0; i < batched_inputs.size(); i++) {
@@ -265,12 +268,16 @@ void pooling_layer::forward(const std::vector<std::vector<std::vector<std::vecto
 					exit(EXIT_FAILURE);
 				}
 
-				memcpy(input_arr + i * inputs + j * input_size * input_size + y * input_size, batched_inputs[i][j][y].data(), input_size * sizeof(double));
+				error_code = cudaMemcpy(input_arr + i * inputs + j * input_size * input_size + y * input_size, batched_inputs[i][j][y].data(), input_size * sizeof(double), cudaMemcpyHostToDevice);
+				if (error_code != cudaError::cudaSuccess) {
+					std::cerr << "Error: cudaMemcpyHostToDevice failed in pooling_layer" << std::endl;
+					exit(error_code);
+				}
 			}
 		}
 	}
 	forward(input_arr, inputs, batched_inputs.size());
-	free(input_arr);
+	cudaFree(input_arr);
 }
 
 void pooling_layer::forward(double* batched_inputs, size_t _input_size, size_t _batch_size) {
@@ -280,55 +287,37 @@ void pooling_layer::forward(double* batched_inputs, size_t _input_size, size_t _
 		exit(EXIT_FAILURE);
 	}
 
+	cudaError error_code;
+
 	if (_batch_size != batch_size) {
-
-		free(forward_output);
-		free(backward_input);
+		cudaFree(forward_output);
+		cudaFree(backward_input);
 		backward_input = nullptr;
-		forward_output = (double*)malloc(_batch_size * inputs * sizeof(double));
-
-		if (forward_output == nullptr) {
-			std::cerr << "Error: Unable to allocate memory in pooling_layer for forward pass" << std::endl;
-			exit(EXIT_FAILURE);
+		error_code = cudaMalloc((void**)&forward_output, _batch_size * inputs * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+			exit(error_code);
 		}
-
+		
 		batch_size = _batch_size;
 	}
 
 	if (backward_input != nullptr) {
-		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
-	}
-
-	double* cuda_batched_input = nullptr;
-	double* cuda_forward_output = nullptr;
-	cudaError error_code;
-
-	error_code = cudaMalloc((void**)&cuda_batched_input, batch_size * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-	
-	error_code = cudaMalloc((void**)&cuda_forward_output, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_batched_input, batched_inputs, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
+		error_code = cudaMemset(backward_input, 0, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in pooling_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
 	dim3 blocks(batch_size / 6 + 1, channels / 6 + 1, (output_size * output_size) / 6 + 1);
 	dim3 threads(6, 6, 6);
 
 	if(pooling_layer_type == pooling_type::Max){
-		Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+		Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(batched_inputs, forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
 	else if (pooling_layer_type == pooling_type::Average) {
-		Cuda_Average_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_input, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+		Cuda_Average_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(batched_inputs, forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
 	
 	error_code = cudaGetLastError();
@@ -342,15 +331,6 @@ void pooling_layer::forward(double* batched_inputs, size_t _input_size, size_t _
 		std::cerr << "Error: cudDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-
-	error_code = cudaMemcpy(forward_output, cuda_forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-
-	cudaFree(cuda_forward_output);
-	cudaFree(cuda_batched_input);
 }
 
 void pooling_layer::forward(double* batched_inputs, double* residual_inputs, size_t _input_size, size_t _batch_size) {
@@ -360,53 +340,36 @@ void pooling_layer::forward(double* batched_inputs, double* residual_inputs, siz
 		exit(EXIT_FAILURE);
 	}
 
+	cudaError error_code;
+
 	if (_batch_size != batch_size || forward_output == nullptr) {
-		free(forward_output);
-		free(backward_input);
+		cudaFree(forward_output);
+		cudaFree(backward_input);
 		backward_input = nullptr;
-		forward_output = (double*)malloc(_batch_size * neurons * sizeof(double));
-		if (forward_output == nullptr) {
-			std::cerr << "Error: Coudl not allocate memory for forward pass in pooling layer" << std::endl;
-			exit(EXIT_FAILURE);
+		error_code = cudaMalloc((void**)&forward_output, _batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+			exit(error_code);
 		}
 		batch_size = _batch_size;
 	}
 
 	if (backward_input != nullptr) {
-		std::fill(backward_input, backward_input + batch_size * neurons, 0.0);
-	}
-
-	double* cuda_forward_output = nullptr;
-	double* cuda_batched_inputs = nullptr;
-	double* cuda_residual_inputs = nullptr;
-	cudaError error_code;
-	
-	error_code = cudaMalloc((void**)&cuda_batched_inputs, batch_size * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_forward_output, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_batched_inputs, batched_inputs, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
+		error_code = cudaMemset(backward_input, 0, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in pooling_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
 	dim3 blocks(batch_size / 6 + 1, channels / 6 + 1, (output_size * output_size) / 6 + 1);
 	dim3 threads(6, 6, 6);
 
 	if (pooling_layer_type == pooling_type::Max) {
-		Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_inputs, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+		Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(batched_inputs, forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
 	else if (pooling_layer_type == pooling_type::Average) {
-		Cuda_Average_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(cuda_batched_inputs, cuda_forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+		Cuda_Average_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(batched_inputs, forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
 
 	error_code = cudaGetLastError();
@@ -415,22 +378,10 @@ void pooling_layer::forward(double* batched_inputs, double* residual_inputs, siz
 		exit(error_code);
 	}
 
-	error_code = cudaMalloc((void**)cuda_residual_inputs, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_residual_inputs, residual_inputs, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
 	dim3 blocks_2d(batch_size / 16 + 1, neurons / 16 + 1);
 	dim3 threads_2d(16, 16);
 
-	Cuda_Matrix_Addition<<<blocks_2d, threads_2d>>>(cuda_residual_inputs, cuda_forward_output, batch_size, neurons);
+	Cuda_Matrix_Addition<<<blocks_2d, threads_2d>>>(residual_inputs, forward_output, batch_size, neurons);
 	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -444,11 +395,6 @@ void pooling_layer::forward(double* batched_inputs, double* residual_inputs, siz
 		exit(error_code);
 	}
 
-	error_code = cudaMemcpy(forward_output, cuda_forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
 }
 
 void pooling_layer::forward(const layer* prev_layer) {
@@ -479,6 +425,17 @@ double pooling_layer::loss(const std::vector<std::vector<double>>& batched_targe
 	}
 	
 	double result = 0.0;
+	double* host_forward_output = (double*)malloc(batch_size * neurons * sizeof(double));
+	if (host_forward_output == nullptr) {
+		std::cerr << "Error: Failed to allocate memory in pooling_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	cudaError error_code = cudaMemcpy(host_forward_output, forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpyDeviceToHost failed in pooling_layer" << std::endl;
+		exit(error_code);
+	}
 
 	for (size_t i = 0; i < batch_size; i++) {
 		
@@ -488,10 +445,11 @@ double pooling_layer::loss(const std::vector<std::vector<double>>& batched_targe
 		}
 
 		for (size_t j = 0; j < neurons; j++) {
-			result += ((forward_output[i * neurons + j] - batched_targets[i][j]) * (forward_output[i * neurons + j] - batched_targets[i][j])) / (double)(batch_size * neurons);
+			result += ((host_forward_output[i * neurons + j] - batched_targets[i][j]) * (host_forward_output[i * neurons + j] - batched_targets[i][j])) / (double)(batch_size * neurons);
 		}
 	}
-	
+
+	free(host_forward_output);
 	return result;
 }
 double pooling_layer::loss(const std::vector<int>& batched_targets) const {
@@ -506,6 +464,17 @@ double pooling_layer::loss(const std::vector<std::vector<std::vector<std::vector
 	}
 
 	double result = 0.0;
+	double* host_forward_output = (double*)malloc(batch_size * neurons * sizeof(double));
+	if (host_forward_output == nullptr) {
+		std::cerr << "Error: Failed to allocate memory in pooling_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+	
+	cudaError error_code = cudaMemcpy(host_forward_output, forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpyDeviceToHost failed in pooling_layer" << std::endl;
+		exit(error_code);
+	}
 
 	for (size_t i = 0; i < batch_size; i++) {
 
@@ -529,13 +498,13 @@ double pooling_layer::loss(const std::vector<std::vector<std::vector<std::vector
 				}
 
 				for (size_t x = 0; x < output_size; x++) {
-					result += ((forward_output[i * channels * output_size * output_size + j * output_size * output_size + y * output_size + x] * batched_targets[i][j][y][x]) * (forward_output[i * channels * output_size * output_size + j * output_size * output_size + y * output_size + x] * batched_targets[i][j][y][x])) / (double)(batch_size * neurons);
+					result += ((host_forward_output[i * channels * output_size * output_size + j * output_size * output_size + y * output_size + x] - batched_targets[i][j][y][x]) * (host_forward_output[i * channels * output_size * output_size + j * output_size * output_size + y * output_size + x] - batched_targets[i][j][y][x])) / (double)(batch_size * neurons);
 				}
-
 			}
 		}
 	}
 
+	free(host_forward_output);
 	return result;
 }
 
@@ -546,11 +515,11 @@ void pooling_layer::init_back_propigation(const std::vector<std::vector<double>>
 		exit(EXIT_FAILURE);
 	}
 	
-	double* input_arr = (double*)malloc(batch_size * neurons * sizeof(double));
-
-	if (input_arr == nullptr){
-		std::cerr << "Error: Could not allocate memory for backward pass in pooling_layer" << std::endl;
-		exit(EXIT_FAILURE);
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * neurons * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+		exit(error_code);
 	}
 
 	for (size_t i = 0; i < batch_size; i++) {
@@ -560,11 +529,15 @@ void pooling_layer::init_back_propigation(const std::vector<std::vector<double>>
 			exit(EXIT_FAILURE);
 		}
 
-		memcpy(input_arr + i * neurons, batched_targets[i].data(), neurons * sizeof(double));
+		error_code = cudaMemcpy(input_arr + i * neurons, batched_targets[i].data(), neurons * sizeof(double), cudaMemcpyHostToDevice);
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemcpyHostToDevice failed in pooling_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 	
 	init_back_propigation(input_arr, neurons, batch_size);
-	free(input_arr);
+	cudaFree(input_arr);
 }
 void pooling_layer::init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) {
 
@@ -573,13 +546,13 @@ void pooling_layer::init_back_propigation(const std::vector<std::vector<std::vec
 		exit(EXIT_FAILURE);
 	}
 
-	double* input_arr = (double*)malloc(batch_size * neurons * sizeof(double));
-
-	if (input_arr == nullptr) {
-		std::cerr << "Error: Could not allocate memory for backward pass in pooling_layer" << std::endl;
-		exit(EXIT_FAILURE);
+	double* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * neurons * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+		exit(error_code);
 	}
-
+	
 	for (size_t i = 0; i < batched_targets.size(); i++) {
 
 		if (batched_targets[i].size() != channels) {
@@ -601,13 +574,17 @@ void pooling_layer::init_back_propigation(const std::vector<std::vector<std::vec
 					exit(EXIT_FAILURE);
 				}
 
-				memcpy(input_arr + i * neurons + j * channels * output_size * output_size + y * output_size, batched_targets[i][j][y].data(), output_size * sizeof(double));
+				error_code = cudaMemcpy(input_arr + i * neurons + j * channels * output_size * output_size + y * output_size, batched_targets[i][j][y].data(), output_size * sizeof(double), cudaMemcpyHostToDevice);;
+				if (error_code != cudaError::cudaSuccess) {
+					std::cerr << "Error: cudaMemcpyHostToDevice failed in pooling_layer" << std::endl;
+					exit(error_code);
+				}
 			}
 		}
 	}
 
 	init_back_propigation(input_arr, neurons, batch_size);
-	free(input_arr);
+	cudaFree(input_arr);
 }
 void pooling_layer::init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) {
 
@@ -616,54 +593,20 @@ void pooling_layer::init_back_propigation(double* batched_targets, size_t _input
 		exit(EXIT_FAILURE);
 	}
 
-	if (backward_input == nullptr) {
-		backward_input = (double*)malloc(batch_size * neurons * sizeof(double));
-		if (backward_input == nullptr) {
-			std::cerr << "Error: Could not allocate memory for backward pass in pooling_layer" << std::endl;
-			exit(EXIT_FAILURE);
-		}
-	
-	}
-
-	double* cuda_batched_targets = nullptr;
-	double* cuda_forward_output = nullptr;
-	double* cuda_backward_input = nullptr;
 	cudaError error_code;
 
-	error_code = cudaMalloc((void**)&cuda_batched_targets, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_forward_output, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_backward_input, batch_size * neurons * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_batched_targets, batched_targets, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to Device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_forward_output, forward_output, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to Device failed" << std::endl;
-		exit(error_code);
+	if (backward_input == nullptr) {
+		error_code = cudaMalloc((void**)&backward_input, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
 	dim3 blocks(batch_size / 16 + 1, neurons / 16 + 1);
 	dim3 threads(16, 16);
 	
-	Cuda_Pooling_Layer_Init_Backpropigation<<<blocks, threads>>>(cuda_forward_output, cuda_batched_targets, cuda_backward_input, batch_size, neurons);
+	Cuda_Pooling_Layer_Init_Backpropigation<<<blocks, threads>>>(forward_output, batched_targets, backward_input, batch_size, neurons);
 	
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -676,16 +619,6 @@ void pooling_layer::init_back_propigation(double* batched_targets, size_t _input
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-	
-	error_code = cudaMemcpy(backward_input, cuda_backward_input, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-	
-	cudaFree(cuda_backward_input);
-	cudaFree(cuda_forward_output);
-	cudaFree(cuda_batched_targets);
 }
 
 void pooling_layer::backward(layer* prev_layer) {
@@ -700,58 +633,30 @@ void pooling_layer::backward(layer* prev_layer) {
 		exit(EXIT_FAILURE);
 	}
 
-	if (prev_layer->backward_input == nullptr) {
-		prev_layer->backward_input = (double*)malloc(batch_size * inputs * sizeof(double));
-		if (prev_layer->backward_input == nullptr) {
-			std::cerr << "Error: Could not allocate memory for backward pass in pooling layer" << std::endl;
-			exit(EXIT_FAILURE);
-		}
-		std::fill(prev_layer->backward_input, prev_layer->backward_input + batch_size * inputs, 0.0);
-	}
-
-	double* cuda_backward_input = nullptr;
-	double* cuda_prev_layer_forward_output = nullptr;
-	double* cuda_prev_layer_backward_input = nullptr;
 	cudaError error_code;
 
-	error_code = cudaMalloc((void**)&cuda_backward_input, batch_size * neurons * sizeof(double));
-	if (error_code != cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_prev_layer_forward_output, batch_size * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMalloc((void**)&cuda_prev_layer_backward_input, batch_size * inputs * sizeof(double));
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMalloc failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_backward_input, backward_input, batch_size * neurons * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to device failed" << std::endl;
-		exit(error_code);
-	}
-
-	error_code = cudaMemcpy(cuda_prev_layer_forward_output, prev_layer->forward_output, batch_size * inputs * sizeof(double), cudaMemcpyHostToDevice);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to deivice failed" << std::endl;
-		exit(error_code);
+	if (prev_layer->backward_input == nullptr) {
+		error_code = cudaMalloc((void**)&prev_layer->backward_input, batch_size * inputs * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+			exit(error_code);
+		}
+		
+		error_code = cudaMemset(prev_layer->backward_input, 0, batch_size * inputs * sizeof(double));
+		if(error_code != cudaError::cudaSuccess){
+			std::cerr << "Error: cudaMemset failed in pooling_layer" << std::endl;
+			exit(error_code);
+		}
 	}
 
 	dim3 blocks(batch_size/6 + 1, channels/6 + 1, (input_size * input_size)/6 + 1);
 	dim3 threads(6, 6, 6);
 	
 	if (pooling_layer_type == pooling_type::Max) {
-		Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_prev_layer_forward_output, cuda_backward_input, cuda_prev_layer_backward_input, batch_size, channels, output_size, input_size, kernal_size, stride);
+		Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(prev_layer->forward_output, backward_input, prev_layer->backward_input, batch_size, channels, output_size, input_size, kernal_size, stride);
 	}
 	else if (pooling_layer_type == pooling_type::Average) {
-		Cuda_Average_Pooling_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(cuda_prev_layer_forward_output, cuda_backward_input, cuda_prev_layer_backward_input, batch_size, channels, output_size, input_size, kernal_size, stride);
+		Cuda_Average_Pooling_Layer_Partial_Derivitive_of_Loss<<<blocks, threads>>>(prev_layer->forward_output, backward_input, prev_layer->backward_input, batch_size, channels, output_size, input_size, kernal_size, stride);
 	}
 
 	error_code = cudaGetLastError();
@@ -763,12 +668,12 @@ void pooling_layer::backward(layer* prev_layer) {
 	if (prev_layer->layer_activation_function == activation_functions::Sigmoid) {
 		dim3 blocks_2d(inputs/16 + 1,batch_size/16 + 1);
 		dim3 threads_2d(16, 16);
-		Cuda_Sigmoid_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
+		Cuda_Sigmoid_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(prev_layer->backward_input, prev_layer->forward_output, batch_size, inputs);
 	}
 	else if (prev_layer->layer_activation_function == activation_functions::Rectified_Linear) {
 		dim3 blocks_2d(inputs / 16 + 1, batch_size / 16 + 1);
 		dim3 threads_2d(16, 16);
-		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(cuda_prev_layer_backward_input, cuda_prev_layer_forward_output, batch_size, inputs);
+		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(prev_layer->backward_input, prev_layer->forward_output, batch_size, inputs);
 	}
 
 	error_code = cudaDeviceSynchronize();
@@ -776,16 +681,6 @@ void pooling_layer::backward(layer* prev_layer) {
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-
-	error_code = cudaMemcpy(prev_layer->backward_input, cuda_prev_layer_backward_input, batch_size * inputs * sizeof(double), cudaMemcpyDeviceToHost);
-	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaMemcpy to host failed" << std::endl;
-		exit(error_code);
-	}
-
-	cudaFree(cuda_backward_input);
-	cudaFree(cuda_prev_layer_forward_output);
-	cudaFree(cuda_prev_layer_backward_input);
 }
 
 void pooling_layer::backward(layer* prev_layer, layer* residual_layer) {
@@ -795,15 +690,27 @@ void pooling_layer::backward(layer* prev_layer, layer* residual_layer) {
 		exit(EXIT_FAILURE);
 	}
 
-	if (residual_layer->backward_input == nullptr) {
-		residual_layer->backward_input = (double*)malloc(batch_size * neurons * sizeof(double));
-		if (residual_layer->backward_input == nullptr) {
-			std::cerr << "Error: Could not allocate memory for backward pass in residual_layer" << std::endl;
-			exit(EXIT_FAILURE);
-		}
-	 }
+	cudaError error_code;
 
-	memcpy(residual_layer->backward_input, backward_input, batch_size * neurons * sizeof(double));
+	if (residual_layer->backward_input == nullptr) {
+		error_code = cudaMalloc((void**)&residual_layer->backward_input, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+			exit(error_code);
+		}
+	}
+
+	error_code = cudaMemcpy(residual_layer->backward_input, backward_input, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpyDeviceToDevice failed in pooling_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed in pooling_layer" << std::endl;
+		exit(error_code);
+	}
 
 	backward(prev_layer);
 }

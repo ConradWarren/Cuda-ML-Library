@@ -33,35 +33,40 @@ void Print_Forward_Output(double* arr, size_t batch_size, size_t neurons) {
 int main(void) {
 	
 	std::vector<std::vector<double>> batched_inputs = { {1,2,3,4,1,2,3,4,1,2,3,4,1,2,3,4}, {4,3,2,1,4,3,2,1,4,3,2,1,4,3,2,1} };
-	std::vector<std::vector<double>> batched_targets = { {0.5,0.5,0.1,0.4, 0.3}, {0.9, 0.4, 0.7, 0.2, 1} };
+	std::vector<std::vector<double>> batched_targets = { {0.5,0.5,0.1,0.4}, {0.4, 0.7, 0.2, 1} };
 
-	dense_layer layer_1(16, 5, activation_functions::Linear);
-	dense_layer layer_2(5, 5, activation_functions::Sigmoid);
-	dense_layer layer_3(5, 5, activation_functions::Sigmoid);
+	convolutional_layer layer_1(4, 1, 1, 2, 1, 1, activation_functions::Linear);
+	convolutional_layer layer_2(5, 1, 1, 3, 1, 1, activation_functions::Sigmoid);
+	convolutional_layer layer_3(5, 1, 3, 3, 1, 0, activation_functions::Sigmoid);
+	convolutional_layer layer_4(3, 3, 1, 2, 1, 0, activation_functions::Rectified_Linear);
 
 	layer_1.forward(batched_inputs);
 	layer_2.forward(&layer_1, &layer_1);
 	layer_3.forward(&layer_2);
+	layer_4.forward(&layer_3);
 
-	std::cout << layer_3.loss(batched_targets) << '\n';
+	std::cout << layer_4.loss(batched_targets) << '\n';
 
 	for (int i = 0; i < 10000; i++) {
 
-		layer_3.init_back_propigation(batched_targets);
+		layer_4.init_back_propigation(batched_targets);
+		layer_4.backward(&layer_3);
 		layer_3.backward(&layer_2);
 		layer_2.backward(&layer_1, &layer_1);
 		layer_1.backward(batched_inputs);
 
-		layer_1.update_paramters(1e-3);
-		layer_2.update_paramters(1e-3);
+		layer_4.update_paramters(1e-3);
 		layer_3.update_paramters(1e-3);
+		layer_2.update_paramters(1e-3);
+		layer_1.update_paramters(1e-3);
 
 		layer_1.forward(batched_inputs);
 		layer_2.forward(&layer_1, &layer_1);
 		layer_3.forward(&layer_2);
-		std::cout << layer_3.loss(batched_targets) << '\n';
-	}
+		layer_4.forward(&layer_3);
 
+		std::cout << layer_4.loss(batched_targets) << '\n';
+	}
 
 	return 0;
 }

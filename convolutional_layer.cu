@@ -198,7 +198,7 @@ __global__ static void Cuda_Graident_Decent(double* d_weights, double* d_bias, d
 	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
 	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
 
-	if (kernal_idx < kernals, channel_idx < channels, position_idx < (kernal_size * kernal_size)) {
+	if (kernal_idx < kernals && channel_idx < channels && position_idx < (kernal_size * kernal_size)) {
 
 		weights[kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx] -= d_weights[kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx] * learning_rate;
 		if (channel_idx == 0 && position_idx == 0) {
@@ -255,15 +255,21 @@ convolutional_layer::convolutional_layer(size_t _input_size, size_t _channels, s
 		exit(error_code);
 	}
 
-	error_code = cudaMalloc((void**)&bias, kernals * sizeof(double));
+	error_code = cudaMalloc((void**)&d_bias, kernals * sizeof(double));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
 		exit(error_code);
 	}
 
-	error_code = cudaMemset(bias, 0, kernals * sizeof(double));
+	error_code = cudaMemset(d_bias, 0, kernals * sizeof(double));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMalloc((void**)&bias, kernals * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
 		exit(error_code);
 	}
 
@@ -273,7 +279,6 @@ convolutional_layer::convolutional_layer(size_t _input_size, size_t _channels, s
 		exit(error_code);
 	}
 
-	
 	forward_output = nullptr;
 	backward_input = nullptr;
 	layer_activation_function = _layer_activation_function;
@@ -971,7 +976,7 @@ void convolutional_layer::backward(layer* prev_layer) {
 
 	error_code = cudaDeviceSynchronize();
 	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
+		std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
 		exit(error_code);
 	}
 }

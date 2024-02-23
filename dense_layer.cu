@@ -29,6 +29,17 @@ __global__ static void Cuda_Dense_Layer_Init_Back_Propigation(double* batched_ta
 	}
 }
 
+__global__ static void Cuda_Dense_Layer_Init_Cross_Catigorial_Loss_Back_Propigation(unsigned int* batched_targets, double* forward_output, double* backward_input, size_t batch_size, size_t neurons) {
+	
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		backward_input[batch_idx * neurons + neuron_idx] = forward_output[batch_idx * neurons + neuron_idx]/(double)batch_size;
+		if (neuron_idx == batched_targets[batch_idx]) backward_input[batch_idx * neurons + neuron_idx] -= 1.0 / (double)batch_size;
+	}
+}
+
 __global__ static void Cuda_Dense_Layer_First_Backward_Pass(double* batched_inputs, double* backward_input, double* d_weights, size_t batch_size, size_t neurons, size_t inputs){
 	
 	size_t neuron_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
@@ -92,6 +103,51 @@ __global__ static void Cuda_Rectified_Linear_Activation_Backward_Pass(double* ba
 
 	if (batch_idx < batch_size && neuron_idx < neurons && forward_input[batch_idx * neurons + neuron_idx] == 0.0) {
 		backward_input[batch_idx * neurons + neuron_idx] = 0.0;
+	}
+}
+
+__global__ static void Cuda_Softmax_Activation_Forward_Pass(double* forward_output, size_t batch_size, size_t neurons) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		forward_output[batch_idx * neurons + neuron_idx] = std::powf(2.71828182846, forward_output[batch_idx * neurons + neuron_idx]);
+	}
+
+	__syncthreads();
+
+	double sum = 0;
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		for (int i = 0; i < neurons; i++) {
+			sum += forward_output[batch_idx * neurons + i];
+		}
+	}
+	
+	__syncthreads();
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		forward_output[batch_idx * neurons + neuron_idx] /= sum;
+	}
+}
+
+__global__ static void Cuda_Softmax_Activation_Bakcward_Pass(double* forward_output, double* backward_input, size_t batch_size, size_t neurons) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+	double sum = 0.0;
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+
+		for (int i = 0; i < neurons; i++) {
+			sum += backward_input[batch_idx * neurons + i] * forward_output[batch_idx * neurons + i];
+		}
+	}
+
+	__syncthreads();
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		backward_input[batch_idx * neurons + neuron_idx] = (backward_input[batch_idx * neurons + neuron_idx] - sum) * forward_output[batch_idx * neurons + neuron_idx];
 	}
 }
 
@@ -358,6 +414,9 @@ void dense_layer::forward(double* batched_inputs, size_t _input_size, size_t _ba
 	else if (layer_activation_function == activation_functions::Rectified_Linear) {
 		Cuda_Rectified_Linear_Activation_Forward_Pass<<<blocks, threads>>>(forward_output, batch_size, neurons);
 	}
+	else if (layer_activation_function == activation_functions::Softmax) {
+		Cuda_Softmax_Activation_Forward_Pass<<<blocks, threads>>>(forward_output, batch_size, neurons);
+	}
 
 	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
 		std::cerr << "Error: Failed to launch forward activation kernal in dense_layer" << std::endl;
@@ -429,7 +488,7 @@ void dense_layer::forward(double* batched_inputs, double* residual_batched_input
 		Cuda_Rectified_Linear_Activation_Forward_Pass<<<blocks, threads>>>(forward_output, batch_size, neurons);
 	}
 	else if (layer_activation_function == activation_functions::Softmax) {
-		//TODO: Implement softmax.
+		Cuda_Softmax_Activation_Forward_Pass<<<blocks, threads>>>(forward_output, batch_size, neurons);
 	}
 
 	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
@@ -505,7 +564,12 @@ double dense_layer::loss(const std::vector<std::vector<double>>& batched_targets
 
 double dense_layer::loss(const std::vector<int>& batched_targets) const {
 
-	//TODO: activation flag check
+	//ALL of this will be moved to another function when I start renaming things. 
+
+	if (layer_activation_function != activation_functions::Softmax) {
+		std::cerr << "Error: Not a classification model" << std::endl;
+		exit(EXIT_FAILURE);
+	}
 
 	if (forward_output == nullptr) {
 		std::cerr << "Error: No forwad output in dense layer to calculate loss" << std::endl;
@@ -516,9 +580,33 @@ double dense_layer::loss(const std::vector<int>& batched_targets) const {
 		std::cerr << "Error: Incompatible batch size, cannot calculate loss" << std::endl;
 		exit(EXIT_FAILURE);
 	}
-	//TODO: need to check math here again.
+	
+	double* host_forward_output = (double*)malloc(batch_size * neurons * sizeof(double));
+	if (host_forward_output == nullptr) {
+		std::cerr << "Error: Failed to allocate memory in dense_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
 
-	return 0;
+	cudaError error_code = cudaMemcpy(host_forward_output, forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpyDeviceToHost failed in dense_layer" << std::endl;
+		exit(error_code);
+	}
+
+	double result = 0;
+
+	for (int i = 0; i < batch_size; i++) {
+
+		if (batched_targets[i] >= neurons) {
+			std::cerr << "Error: invalid batched_tagets input" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		host_forward_output[batched_targets[i]] = (host_forward_output[batched_targets[i]] > 1e-7) ? host_forward_output[batched_targets[i]] : 1e-7;
+		host_forward_output[batched_targets[i]] = (host_forward_output[batched_targets[i]] < 1 - 1e-7) ? host_forward_output[batched_targets[i]] : 1 - 1e-7;
+		result += -std::log(host_forward_output[batched_targets[i]])/(double)(batch_size);   
+	}
+	free(host_forward_output);
+	return result;
 }
 double dense_layer::loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const {
 	
@@ -568,6 +656,38 @@ double dense_layer::loss(const std::vector<std::vector<std::vector<std::vector<d
 	}
 	free(host_forward_output);
 	return result;
+}
+
+void dense_layer::init_back_propigation(const std::vector<unsigned int>& batched_targets) {
+
+	if (batched_targets.size() != batch_size) {
+		std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	unsigned int* input_arr = nullptr;
+
+	for (int i = 0; i < batch_size; i++) {
+		if (batched_targets[i] >= neurons) {
+			std::cerr << "Error: Invalid batched_targets inputs" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * neurons * sizeof(double));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in dense_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(input_arr, batched_targets.data(), batch_size * sizeof(double), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpyHostToDevice failed in dense_layer" << std::endl;
+		exit(error_code);
+	}
+
+	init_back_propigation(input_arr, batch_size);
+	cudaFree(input_arr);
 }
 
 void dense_layer::init_back_propigation(const std::vector<std::vector<double>>& batched_targets) {
@@ -687,6 +807,9 @@ void dense_layer::init_back_propigation(double* batched_targets, size_t _input_s
 	else if (layer_activation_function == activation_functions::Rectified_Linear) {
 		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(backward_input, forward_output, batch_size, neurons);
 	}
+	else if (layer_activation_function == activation_functions::Softmax) {
+		Cuda_Softmax_Activation_Bakcward_Pass<<<blocks, threads>>>(forward_output, backward_input, batch_size, neurons);
+	}
 
 	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
 		std::cerr << "Error: Failed to launch backward activation function kernal" << std::endl;
@@ -696,6 +819,46 @@ void dense_layer::init_back_propigation(double* batched_targets, size_t _input_s
 	error_code = cudaDeviceSynchronize();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaDevice Synchronize failed in dense_layer" << std::endl;
+		exit(error_code);
+	}
+}
+
+void dense_layer::init_back_propigation(unsigned int* batched_targets, size_t _batch_size) {
+
+	if (batch_size != _batch_size) {
+		std::cerr << "Error: Invalid input size for dense layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	if (layer_activation_function != activation_functions::Softmax) {
+		std::cerr << "Error: Invalid activation_function for Init_Cross_Catagorial_Loss in dense_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	cudaError error_code;
+
+	if (backward_input == nullptr) {
+		error_code = cudaMalloc((void**)&backward_input, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in dense_layer" << std::endl;
+			exit(error_code);
+		}
+	}
+
+	dim3 blocks(neurons / 16 + 1, batch_size / 16 + 1);
+	dim3 threads(16, 16);
+
+	Cuda_Dense_Layer_Init_Cross_Catigorial_Loss_Back_Propigation<<<blocks, threads>>>(batched_targets, forward_output, backward_input, batch_size, neurons);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to Launch Init_Cross_Catigorial_Loss_Back_Propigation in dense_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed in dense_layer" << std::endl;
 		exit(error_code);
 	}
 }
@@ -866,6 +1029,9 @@ void dense_layer::backward(layer* prev_layer) {
 	}
 	else if (prev_layer->layer_activation_function == activation_functions::Rectified_Linear) {
 		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(prev_layer->backward_input, prev_layer->forward_output, batch_size, inputs);
+	}
+	else if (prev_layer->layer_activation_function == activation_functions::Softmax) {
+		Cuda_Softmax_Activation_Bakcward_Pass<<<blocks, threads>>>(prev_layer->forward_output, prev_layer->backward_input, batch_size, inputs);
 	}
 
 	if (prev_layer->layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {

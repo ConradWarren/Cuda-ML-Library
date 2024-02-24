@@ -2,8 +2,9 @@
 
 #include <vector>
 
-//debuging function will delete later.
+//debuging functions will delete later.
 void Print_Cuda_Forward_Output(double* input_arr, size_t batch_size, size_t neurons);
+void Modify_Cuda_Weight(double* input_arr, int parameter_idx, double esp);
 
 enum class activation_functions{Linear ,Rectified_Linear, Sigmoid, Softmax};
 enum class pooling_type{Max, Average};
@@ -27,7 +28,7 @@ public:
 	void virtual forward(const layer* prev_layer, const layer* residual_layer) = 0;
 
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const = 0;
-	double virtual loss(const std::vector<int>& batched_targets) const = 0;
+	double virtual loss(const std::vector<unsigned int>& batched_targets) const = 0;
 	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const = 0;
 
 	void virtual init_back_propigation(const std::vector<unsigned int>& batched_targets) = 0;
@@ -66,14 +67,14 @@ public:
 	void virtual forward(const layer* prev_layer, const layer* residual_layer) override;
 
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
-	double virtual loss(const std::vector<int>& batched_targets) const override;
+	double virtual loss(const std::vector<unsigned int>& batched_targets) const override;
 	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;
 
 	void virtual init_back_propigation(const std::vector<unsigned int>& batched_targets) override;
 	void virtual init_back_propigation(const std::vector<std::vector<double>>& batched_targets) override;
 	void virtual init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) override;
 	void virtual init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) override;
-	void virtual init_back_propigation(unsigned int* batched_targets, size_t _batch_size) = 0;
+	void virtual init_back_propigation(unsigned int* batched_targets, size_t _batch_size) override;
 
 	void virtual backward(const std::vector<std::vector<double>>& batched_inputs) override;
 	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override;
@@ -111,14 +112,14 @@ public:
 	void virtual forward(const layer* prev_layer, const layer* residual_layer) override;
 
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
-	double virtual loss(const std::vector<int>& batched_targets) const override;
+	double virtual loss(const std::vector<unsigned int>& batched_targets) const override;
 	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;
 
-	void virtual init_back_propigation(const std::vector<unsigned int>& batched_targets) override {}
+	void virtual init_back_propigation(const std::vector<unsigned int>& batched_targets) override;
 	void virtual init_back_propigation(const std::vector<std::vector<double>>& batched_targets) override;
 	void virtual init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) override;
 	void virtual init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) override;
-	void virtual init_back_propigation(unsigned int* batched_targets, size_t _batch_size) = 0;
+	void virtual init_back_propigation(unsigned int* batched_targets, size_t _batch_size) override;
 
 	void virtual backward(const std::vector<std::vector<double>>& batched_inputs) override;
 	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override;
@@ -152,14 +153,14 @@ public:
 	void virtual forward(const layer* prev_layer, const layer* residual_layer) override;
 	
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
-	double virtual loss(const std::vector<int>& batched_targets) const override;
+	double virtual loss(const std::vector<unsigned int>& batched_targets) const override;
 	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;
 
 	void virtual init_back_propigation(const std::vector<unsigned int>& batched_targets) {}
 	void virtual init_back_propigation(const std::vector<std::vector<double>>& batched_targets) override;
 	void virtual init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) override;
 	void virtual init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) override;
-	void virtual init_back_propigation(unsigned int* batched_targets, size_t _batch_size) = 0;
+	void virtual init_back_propigation(unsigned int* batched_targets, size_t _batch_size) override {}
 
 	void virtual backward(const std::vector<std::vector<double>>& batched_inputs) override {}
 	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override {}

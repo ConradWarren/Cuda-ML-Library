@@ -35,8 +35,9 @@ __global__ static void Cuda_Dense_Layer_Init_Cross_Catigorial_Loss_Back_Propigat
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
 	if (batch_idx < batch_size && neuron_idx < neurons) {
-		backward_input[batch_idx * neurons + neuron_idx] = forward_output[batch_idx * neurons + neuron_idx]/(double)batch_size;
-		if (neuron_idx == batched_targets[batch_idx]) backward_input[batch_idx * neurons + neuron_idx] -= 1.0 / (double)batch_size;
+		backward_input[batch_idx * neurons + neuron_idx] = forward_output[batch_idx * neurons + neuron_idx];
+		if (neuron_idx == batched_targets[batch_idx]) backward_input[batch_idx * neurons + neuron_idx] -= 1.0;
+		backward_input[batch_idx * neurons + neuron_idx] /= (double)(batch_size);
 	}
 }
 
@@ -138,7 +139,6 @@ __global__ static void Cuda_Softmax_Activation_Bakcward_Pass(double* forward_out
 	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 	double sum = 0.0;
 	if (batch_idx < batch_size && neuron_idx < neurons) {
-
 		for (int i = 0; i < neurons; i++) {
 			sum += backward_input[batch_idx * neurons + i] * forward_output[batch_idx * neurons + i];
 		}
@@ -562,7 +562,7 @@ double dense_layer::loss(const std::vector<std::vector<double>>& batched_targets
 	return result;
 }
 
-double dense_layer::loss(const std::vector<int>& batched_targets) const {
+double dense_layer::loss(const std::vector<unsigned int>& batched_targets) const {
 
 	//ALL of this will be moved to another function when I start renaming things. 
 
@@ -594,16 +594,15 @@ double dense_layer::loss(const std::vector<int>& batched_targets) const {
 	}
 
 	double result = 0;
-
 	for (int i = 0; i < batch_size; i++) {
 
 		if (batched_targets[i] >= neurons) {
 			std::cerr << "Error: invalid batched_tagets input" << std::endl;
 			exit(EXIT_FAILURE);
 		}
-		host_forward_output[batched_targets[i]] = (host_forward_output[batched_targets[i]] > 1e-7) ? host_forward_output[batched_targets[i]] : 1e-7;
-		host_forward_output[batched_targets[i]] = (host_forward_output[batched_targets[i]] < 1 - 1e-7) ? host_forward_output[batched_targets[i]] : 1 - 1e-7;
-		result += -std::log(host_forward_output[batched_targets[i]])/(double)(batch_size);   
+		host_forward_output[i * neurons + batched_targets[i]] = (host_forward_output[i * neurons + batched_targets[i]] > 1e-7) ? host_forward_output[i * neurons + batched_targets[i]] : 1e-7;
+		host_forward_output[i * neurons + batched_targets[i]] = (host_forward_output[i * neurons + batched_targets[i]] < 1 - 1e-7) ? host_forward_output[i * neurons + batched_targets[i]] : 1 - 1e-7;
+		result += -std::log(host_forward_output[i * neurons + batched_targets[i]])/(double)(batch_size);
 	}
 	free(host_forward_output);
 	return result;
@@ -674,13 +673,13 @@ void dense_layer::init_back_propigation(const std::vector<unsigned int>& batched
 		}
 	}
 
-	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * neurons * sizeof(double));
+	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * sizeof(unsigned int));
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMalloc failed in dense_layer" << std::endl;
 		exit(error_code);
 	}
 
-	error_code = cudaMemcpy(input_arr, batched_targets.data(), batch_size * sizeof(double), cudaMemcpyHostToDevice);
+	error_code = cudaMemcpy(input_arr, batched_targets.data(), batch_size * sizeof(unsigned int), cudaMemcpyHostToDevice);
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaMemcpyHostToDevice failed in dense_layer" << std::endl;
 		exit(error_code);
@@ -1114,4 +1113,13 @@ void Print_Cuda_Forward_Output(double* input_arr, size_t batch_size, size_t neur
 		std::cout << "}\n";
 	}
 	std::cout << "\n";
+}
+void Modify_Cuda_Weight(double* input_arr,int parameter_idx, double esp) {
+
+	double* host_input_arr = (double*)malloc(sizeof(double));
+	cudaMemcpy(host_input_arr, input_arr + parameter_idx, sizeof(double), cudaMemcpyDeviceToHost);
+	
+	*host_input_arr += esp;
+	
+	cudaMemcpy(input_arr + parameter_idx, host_input_arr, sizeof(double), cudaMemcpyHostToDevice);
 }

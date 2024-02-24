@@ -452,7 +452,7 @@ double pooling_layer::loss(const std::vector<std::vector<double>>& batched_targe
 	free(host_forward_output);
 	return result;
 }
-double pooling_layer::loss(const std::vector<int>& batched_targets) const {
+double pooling_layer::loss(const std::vector<unsigned int>& batched_targets) const {
 	//need to check softmax math here. 
 	return 0.0;
 }

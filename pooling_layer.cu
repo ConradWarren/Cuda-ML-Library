@@ -64,6 +64,18 @@ __global__ static void Cuda_Pooling_Layer_Init_Backpropigation(double* forward_o
 	}
 }
 
+__global__ static void Cuda_Pooling_Layer_Init_Cross_Catigorial_Loss_Back_Propigation(unsigned int* batched_targets, double* forward_output, double* backward_input, size_t batch_size, size_t neurons) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		backward_input[batch_idx * neurons + neuron_idx] = forward_output[batch_idx * neurons + neuron_idx];
+		if (neuron_idx == batched_targets[batch_idx]) backward_input[batch_idx * neurons + neuron_idx] -= 1.0;
+		backward_input[batch_idx * neurons + neuron_idx] /= (double)(batch_size);
+	}
+}
+
 __global__ static void Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss(double* prev_layer_forward_output, double* backward_input, double* prev_layer_backward_input,
 												size_t batch_size, size_t channels, size_t output_size, size_t input_size, size_t kernal_size, size_t stride) {
 
@@ -772,6 +784,23 @@ void pooling_layer::init_back_propigation(unsigned int* batched_targets, size_t 
 			std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
 			exit(error_code);
 		}
+	}
+
+	dim3 blocks(neurons / 16 + 1, batch_size / 16 + 1);
+	dim3 threads(16, 16);
+
+	Cuda_Pooling_Layer_Init_Cross_Catigorial_Loss_Back_Propigation<<<blocks, threads>>>(batched_targets, forward_output, backward_input, batch_size, neurons);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch init_backpropigation kernal in pooling_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSunchronize failed" << std::endl;
+		exit(error_code);
 	}
 }
 

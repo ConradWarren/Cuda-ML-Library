@@ -207,7 +207,7 @@ __global__ static void Cuda_Softmax_Activation_Forward_Pass(double* forward_outp
 	double sum = 0.0;
 	if (batch_idx < batch_size && neuron_idx < neurons) {
 		for (int i = 0; i < neurons; i++) {
-			sum += forward_output[batch_idx * neurons + neuron_idx];
+			sum += forward_output[batch_idx * neurons + i];
 		}
 	}
 
@@ -704,7 +704,7 @@ double convolutional_layer::loss(const std::vector<unsigned int>& batched_target
 	}
 
 	free(host_forward_ouput);
-	return 0.0;
+	return result;
 }
 
 double convolutional_layer::loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const {
@@ -875,11 +875,6 @@ void convolutional_layer::init_back_propigation(double* batched_targets, size_t 
 			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
 			exit(error_code);
 		}
-		error_code = cudaMemset(backward_input, 0, batch_size * neurons * sizeof(double));
-		if (error_code != cudaError::cudaSuccess) {
-			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
-			exit(error_code);
-		}
 	}
 
 	dim3 blocks(neurons / 16 + 1, batch_size / 16 + 1);
@@ -937,14 +932,14 @@ void convolutional_layer::init_back_propigation(unsigned int* batched_targets, s
 		}
 	}
 
-	dim3 blocks(neurons / 16, batch_size / 16 + 1);
+	dim3 blocks(neurons / 16 + 1, batch_size / 16 + 1);
 	dim3 threads(16, 16);
 
 	Cuda_Init_Cross_Catigorial_Loss_Back_Propigation<<<blocks, threads>>>(batched_targets, forward_output, backward_input, batch_size, neurons);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: Failed to Launch Init_Cross_Catigorial_Loss_Back_Propigation in dense_layer" << std::endl;
+		std::cerr << "Error: Failed to Launch Init_Cross_Catigorial_Loss_Back_Propigation in convolutional_layer" << std::endl;
 		exit(error_code);
 	}
 

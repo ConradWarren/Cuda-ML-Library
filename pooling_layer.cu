@@ -76,7 +76,6 @@ __global__ static void Cuda_Max_Pooling_Layer_Partial_Derivitive_of_Loss(double*
 		int idx = batch_idx * channels * input_size * input_size + channel_idx * input_size * input_size + position_idx;
 		int position_y_idx = position_idx/input_size;
 		int position_x_idx = position_idx % input_size;
-		//prev_layer_backward_input[idx] = 0.0;
 		
 		for (int y = 0; y < kernal_size; y++) {
 			
@@ -142,6 +141,16 @@ __global__ static void Cuda_Average_Pooling_Layer_Partial_Derivitive_of_Loss(dou
 	}
 }
 
+__global__ static void Cuda_Sigmoid_Activation_Forward_Pass(double* forward_output, size_t batch_size, size_t neurons) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		forward_output[batch_idx * neurons + neuron_idx] = 1.0 / (1.0 + std::powf(2.71828182846, -forward_output[batch_idx * neurons + neuron_idx]));
+	}
+}
+
 __global__ static void Cuda_Sigmoid_Activation_Backward_Pass(double* backward_input, double* forward_output, size_t batch_size, size_t neurons) {
 
 	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
@@ -149,6 +158,16 @@ __global__ static void Cuda_Sigmoid_Activation_Backward_Pass(double* backward_in
 
 	if (batch_idx < batch_size && neuron_idx < neurons) {
 		backward_input[batch_idx * neurons + neuron_idx] *= forward_output[batch_idx * neurons + neuron_idx] * (1.0 - forward_output[batch_idx * neurons + neuron_idx]);
+	}
+}
+
+__global__ static void Cuda_Rectified_Linear_Activation_Forward_Pass(double* forward_output, size_t batch_size, size_t neurons) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (batch_idx < batch_size && neuron_idx < neurons && forward_output[batch_idx * neurons + neuron_idx] < 0.0) {
+		forward_output[batch_idx * neurons + neuron_idx] = 0.0;
 	}
 }
 
@@ -162,10 +181,54 @@ __global__ static void Cuda_Rectified_Linear_Activation_Backward_Pass(double* ba
 	}
 }
 
+__global__ static void Cuda_Softmax_Activation_Forward_Pass(double* forward_output, size_t batch_size, size_t neurons) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		forward_output[batch_idx * neurons + neuron_idx] = std::powf(2.71828182846, forward_output[batch_idx * neurons + neuron_idx]);
+	}
+
+	__syncthreads();
+
+	double sum = 0;
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		for (int i = 0; i < neurons; i++) {
+			sum += forward_output[batch_idx * neurons + i];
+		}
+	}
+
+	__syncthreads();
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		forward_output[batch_idx * neurons + neuron_idx] /= sum;
+	}
+}
+
+__global__ static void Cuda_Softmax_Activation_Bakcward_Pass(double* forward_output, double* backward_input, size_t batch_size, size_t neurons) {
+
+	size_t batch_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+	double sum = 0.0;
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		for (int i = 0; i < neurons; i++) {
+			sum += backward_input[batch_idx * neurons + i] * forward_output[batch_idx * neurons + i];
+		}
+	}
+
+	__syncthreads();
+
+	if (batch_idx < batch_size && neuron_idx < neurons) {
+		backward_input[batch_idx * neurons + neuron_idx] = (backward_input[batch_idx * neurons + neuron_idx] - sum) * forward_output[batch_idx * neurons + neuron_idx];
+	}
+}
+
 __global__ void static Cuda_Matrix_Addition(double* residual_inputs, double* forward_output, size_t batch_size, size_t neurons) {
 
-	size_t batch_idx = blockIdx.x * blockDim.x + threadIdx.x;
-	size_t neuron_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t batch_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t neuron_idx = blockIdx.x * blockDim.x + threadIdx.x;
 
 	if (batch_idx < batch_size && neuron_idx < neurons) {
 		forward_output[batch_idx * neurons + neuron_idx] += residual_inputs[batch_idx * neurons + neuron_idx];
@@ -189,7 +252,7 @@ pooling_layer::pooling_layer() {
 	pooling_layer_type = pooling_type::Max;
 }
 
-pooling_layer::pooling_layer(size_t _input_size, size_t _channels, size_t _kernal_size, size_t _stride, pooling_type layer_type) {
+pooling_layer::pooling_layer(size_t _input_size, size_t _channels, size_t _kernal_size, size_t _stride, pooling_type layer_type, activation_functions _layer_activation_function) {
 
 	batch_size = 0;
 	input_size = _input_size;
@@ -203,7 +266,7 @@ pooling_layer::pooling_layer(size_t _input_size, size_t _channels, size_t _kerna
 
 	forward_output = nullptr;
 	backward_input = nullptr;
-	layer_activation_function = activation_functions::Linear;
+	layer_activation_function = _layer_activation_function;
 	pooling_layer_type = layer_type;
 }
 
@@ -298,7 +361,7 @@ void pooling_layer::forward(double* batched_inputs, size_t _input_size, size_t _
 			std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
 			exit(error_code);
 		}
-		
+
 		batch_size = _batch_size;
 	}
 
@@ -313,16 +376,34 @@ void pooling_layer::forward(double* batched_inputs, size_t _input_size, size_t _
 	dim3 blocks(batch_size / 6 + 1, channels / 6 + 1, (output_size * output_size) / 6 + 1);
 	dim3 threads(6, 6, 6);
 
-	if(pooling_layer_type == pooling_type::Max){
-		Cuda_Max_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(batched_inputs, forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+	if (pooling_layer_type == pooling_type::Max) {
+		Cuda_Max_Pooling_Layer_Forward_Pass << <blocks, threads >> > (batched_inputs, forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
 	else if (pooling_layer_type == pooling_type::Average) {
-		Cuda_Average_Pooling_Layer_Forward_Pass<<<blocks, threads>>>(batched_inputs, forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
+		Cuda_Average_Pooling_Layer_Forward_Pass << <blocks, threads >> > (batched_inputs, forward_output, batch_size, channels, input_size, kernal_size, output_size, stride);
 	}
-	
+
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: Failed to lauch forward pass kernal in pooling_layer" << std::endl;
+		exit(error_code);
+	}
+
+	dim3 blocks_2d(neurons / 16 + 1, batch_size / 16 + 1);
+	dim3 threads_2d(16, 16);
+
+	if (layer_activation_function == activation_functions::Sigmoid) {
+		Cuda_Sigmoid_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
+	}
+	else if (layer_activation_function == activation_functions::Rectified_Linear) {
+		Cuda_Rectified_Linear_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
+	}
+	else if (layer_activation_function == activation_functions::Softmax) {
+		Cuda_Softmax_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
+	}
+
+	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch forward activation functions kernal in pooling_layer" << std::endl;
 		exit(error_code);
 	}
 
@@ -378,7 +459,7 @@ void pooling_layer::forward(double* batched_inputs, double* residual_inputs, siz
 		exit(error_code);
 	}
 
-	dim3 blocks_2d(batch_size / 16 + 1, neurons / 16 + 1);
+	dim3 blocks_2d(neurons / 16 + 1, batch_size / 16 + 1);
 	dim3 threads_2d(16, 16);
 
 	Cuda_Matrix_Addition<<<blocks_2d, threads_2d>>>(residual_inputs, forward_output, batch_size, neurons);
@@ -389,12 +470,26 @@ void pooling_layer::forward(double* batched_inputs, double* residual_inputs, siz
 		exit(error_code);
 	}
 
+	if (layer_activation_function == activation_functions::Sigmoid) {
+		Cuda_Sigmoid_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
+	}
+	else if (layer_activation_function == activation_functions::Rectified_Linear) {
+		Cuda_Rectified_Linear_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
+	}
+	else if (layer_activation_function == activation_functions::Softmax) {
+		Cuda_Softmax_Activation_Forward_Pass<<<blocks_2d, threads_2d>>>(forward_output, batch_size, neurons);
+	}
+
+	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch forward activation function kernals in pooling_layer" << std::endl;
+		exit(error_code);
+	}
+
 	error_code = cudaDeviceSynchronize();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaDeviceSynchronize failed" << std::endl;
 		exit(error_code);
 	}
-
 }
 
 void pooling_layer::forward(const layer* prev_layer) {
@@ -453,8 +548,47 @@ double pooling_layer::loss(const std::vector<std::vector<double>>& batched_targe
 	return result;
 }
 double pooling_layer::loss(const std::vector<unsigned int>& batched_targets) const {
-	//need to check softmax math here. 
-	return 0.0;
+
+	if (batched_targets.size() != batch_size) {
+		std::cerr << "Error: Batched_targets of invalid input shape for pooling layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	if (layer_activation_function != activation_functions::Softmax) {
+		std::cerr << "Error: Not a classification model" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	if (forward_output == nullptr) {
+		std::cerr << "Error: No forwad output in pooling_layer to calculate loss" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	double* host_forward_output = (double*)malloc(batch_size * neurons * sizeof(double));
+	if (host_forward_output == nullptr) {
+		std::cerr << "Error: Failed to allocate memory in pooling_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	cudaError error_code = cudaMemcpy(host_forward_output, forward_output, batch_size * neurons * sizeof(double), cudaMemcpyDeviceToHost);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpyDeviceToHost failed in pooling_layer" << std::endl;
+		exit(error_code);
+	}
+
+	double result = 0.0;
+	for (int i = 0; i < batch_size; i++) {
+
+		if (batched_targets[i] >= neurons) {
+			std::cerr << "Error: invalid batched_tagets input" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+		host_forward_output[i * neurons + batched_targets[i]] = (host_forward_output[i * neurons + batched_targets[i]] > 1e-7) ? host_forward_output[i * neurons + batched_targets[i]] : 1e-7;
+		host_forward_output[i * neurons + batched_targets[i]] = (host_forward_output[i * neurons + batched_targets[i]] < 1 - 1e-7) ? host_forward_output[i * neurons + batched_targets[i]] : 1 - 1e-7;
+		result += -std::log(host_forward_output[i * neurons + batched_targets[i]]) / (double)(batch_size);
+	}
+	free(host_forward_output);
+	return result;
 }
 double pooling_layer::loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const {
 
@@ -506,6 +640,37 @@ double pooling_layer::loss(const std::vector<std::vector<std::vector<std::vector
 
 	free(host_forward_output);
 	return result;
+}
+
+void pooling_layer::init_back_propigation(const std::vector<unsigned int>& batched_targets) {
+
+	if (batched_targets.size() != batch_size) {
+		std::cerr << "Error: Batched_targets of invalid input shape for pooling_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	for (int i = 0; i < batch_size; i++) {
+		if (batched_targets[i] >= neurons) {
+			std::cerr << "Error: Invalid inputs in batched_targets" << std::endl;
+			exit(EXIT_FAILURE);
+		}
+	}
+
+	unsigned int* input_arr = nullptr;
+	cudaError error_code = cudaMalloc((void**)&input_arr, batch_size * sizeof(unsigned int));
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaMemcpy(input_arr, batched_targets.data(), batch_size * sizeof(unsigned int), cudaMemcpyHostToDevice);
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaMemcpyHostToDevice failed in pooling_layer" << std::endl;
+		exit(error_code);
+	}
+
+	init_back_propigation(input_arr, batch_size);
+	cudaFree(input_arr);
 }
 
 void pooling_layer::init_back_propigation(const std::vector<std::vector<double>>& batched_targets) {
@@ -586,6 +751,30 @@ void pooling_layer::init_back_propigation(const std::vector<std::vector<std::vec
 	init_back_propigation(input_arr, neurons, batch_size);
 	cudaFree(input_arr);
 }
+
+void pooling_layer::init_back_propigation(unsigned int* batched_targets, size_t _batch_size) {
+
+	if (batch_size != _batch_size) {
+		std::cerr << "Error: Invalid input size for pooling_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	if (layer_activation_function != activation_functions::Softmax) {
+		std::cerr << "Error: Invalid activation_function for Init_Cross_Catagorial_Loss in pooling_layer" << std::endl;
+		exit(EXIT_FAILURE);
+	}
+
+	cudaError error_code;
+
+	if (backward_input == nullptr) {
+		error_code = cudaMalloc((void**)&backward_input, batch_size * neurons * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in pooling_layer" << std::endl;
+			exit(error_code);
+		}
+	}
+}
+
 void pooling_layer::init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) {
 
 	if (batch_size != _batch_size || _input_size != neurons) {
@@ -611,6 +800,21 @@ void pooling_layer::init_back_propigation(double* batched_targets, size_t _input
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: Failed to launch init_backpropigation kernal in pooling layer" << std::endl;
+		exit(error_code);
+	}
+
+	if (layer_activation_function == activation_functions::Sigmoid) {
+		Cuda_Sigmoid_Activation_Backward_Pass<<<blocks, threads>>>(backward_input, forward_output, batch_size, neurons);
+	}
+	else if (layer_activation_function == activation_functions::Rectified_Linear) {
+		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks, threads>>>(backward_input, forward_output, batch_size, neurons);
+	}
+	else if (layer_activation_function == activation_functions::Softmax) {
+		Cuda_Softmax_Activation_Bakcward_Pass<<<blocks, threads>>>(forward_output, backward_input, batch_size, neurons);
+	}
+
+	if (layer_activation_function != activation_functions::Linear && (error_code = cudaGetLastError()) != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch backward activation function kernals in pooling_layer" << std::endl;
 		exit(error_code);
 	}
 
@@ -665,15 +869,17 @@ void pooling_layer::backward(layer* prev_layer) {
 		exit(error_code);
 	}
 
+	dim3 blocks_2d(inputs / 16 + 1, batch_size / 16 + 1);
+	dim3 threads_2d(16, 16);
+
 	if (prev_layer->layer_activation_function == activation_functions::Sigmoid) {
-		dim3 blocks_2d(inputs/16 + 1,batch_size/16 + 1);
-		dim3 threads_2d(16, 16);
 		Cuda_Sigmoid_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(prev_layer->backward_input, prev_layer->forward_output, batch_size, inputs);
 	}
 	else if (prev_layer->layer_activation_function == activation_functions::Rectified_Linear) {
-		dim3 blocks_2d(inputs / 16 + 1, batch_size / 16 + 1);
-		dim3 threads_2d(16, 16);
 		Cuda_Rectified_Linear_Activation_Backward_Pass<<<blocks_2d, threads_2d>>>(prev_layer->backward_input, prev_layer->forward_output, batch_size, inputs);
+	}
+	else if (prev_layer->layer_activation_function == activation_functions::Softmax) {
+		Cuda_Softmax_Activation_Bakcward_Pass<<<blocks_2d, threads_2d>>>(prev_layer->forward_output, prev_layer->backward_input, batch_size, inputs);
 	}
 
 	error_code = cudaDeviceSynchronize();

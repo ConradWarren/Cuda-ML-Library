@@ -663,7 +663,7 @@ void dense_layer::init_back_propigation(const std::vector<unsigned int>& batched
 		std::cerr << "Error: Batched_targets of incompatible input shape" << std::endl;
 		exit(EXIT_FAILURE);
 	}
-
+	
 	unsigned int* input_arr = nullptr;
 
 	for (int i = 0; i < batch_size; i++) {

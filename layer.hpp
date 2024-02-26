@@ -142,7 +142,7 @@ public:
 	pooling_type pooling_layer_type;
 
 	pooling_layer();
-	pooling_layer(size_t _input_size, size_t _channels, size_t _kernal_size, size_t stride, pooling_type layer_type);
+	pooling_layer(size_t _input_size, size_t _channels, size_t _kernal_size, size_t stride, pooling_type layer_type, activation_functions _layer_activation_function);
 	~pooling_layer();
 
 	void virtual forward(const std::vector<std::vector<double>>& batched_inputs) override;
@@ -156,11 +156,11 @@ public:
 	double virtual loss(const std::vector<unsigned int>& batched_targets) const override;
 	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;
 
-	void virtual init_back_propigation(const std::vector<unsigned int>& batched_targets) {}
+	void virtual init_back_propigation(const std::vector<unsigned int>& batched_targets) override;
 	void virtual init_back_propigation(const std::vector<std::vector<double>>& batched_targets) override;
 	void virtual init_back_propigation(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) override;
 	void virtual init_back_propigation(double* batched_targets, size_t _input_size, size_t _batch_size) override;
-	void virtual init_back_propigation(unsigned int* batched_targets, size_t _batch_size) override {}
+	void virtual init_back_propigation(unsigned int* batched_targets, size_t _batch_size) override;
 
 	void virtual backward(const std::vector<std::vector<double>>& batched_inputs) override {}
 	void virtual backward(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_inputs) override {}

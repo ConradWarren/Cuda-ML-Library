@@ -1176,7 +1176,7 @@ void convolutional_layer::backward(layer* prev_layer, layer* residual_layer) {
 	backward(prev_layer);	
 }
 
-void convolutional_layer::update_paramters(double learning_rate) {
+void convolutional_layer::update_paramters_stochastic_gradient_descent(double learning_rate) {
 
 	dim3 blocks(kernals / 6 + 1, channels / 6 + 1, (kernal_size * kernal_size) / 6 + 1);
 	dim3 threads(6, 6, 6);

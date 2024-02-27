@@ -43,7 +43,11 @@ public:
 	void virtual backward(layer* prev_layer) = 0;
 	void virtual backward(layer* prev_layer, layer* residual_layer) = 0;
 
-	void virtual update_paramters(double learning_rate) = 0;
+	void virtual update_paramters_stochastic_gradient_descent(double learning_rate) = 0;
+	void virtual update_paramters_stochastic_gradient_descent_with_momentum(double learning_rate, double sgd_mass) = 0;
+	void virtual update_paramters_adaptive_gradient(double learning_rate) = 0;
+	void virtual update_paramters_root_mean_squared_propagation(double learning_rate, double rho) = 0;
+	void virtual update_paramters_adaptive_momentum(double learning_rate, double sgd_mass, double rho) = 0;
 };
 
 class dense_layer : public layer {
@@ -54,6 +58,12 @@ public:
 	double* bias;
 	double* d_weights;
 	double* d_bias;
+	double* weight_momentums;
+	double* bias_momentums;
+	double* weight_adagrad_cache;
+	double* bias_adagrad_cache;
+	double* weight_rms_cache;
+	double* bias_rms_cache;
 	
 	dense_layer();
 	dense_layer(size_t _inputs, size_t _neurons, activation_functions _layer_activation_function);
@@ -82,7 +92,11 @@ public:
 	void virtual backward(layer* prev_layer) override;
 	void virtual backward(layer* prev_layer, layer* residual_layer) override;
 
-	void virtual update_paramters(double learning_rate) override;
+	void virtual update_paramters_stochastic_gradient_descent(double learning_rate) override;
+	void virtual update_paramters_stochastic_gradient_descent_with_momentum(double learning_rate, double sgd_mass) override;
+	void virtual update_paramters_adaptive_gradient(double learning_rate) override;
+	void virtual update_paramters_root_mean_squared_propagation(double learning_rate, double rho) override;
+	void virtual update_paramters_adaptive_momentum(double learning_rate, double sgd_mass, double rho) override;
 };
 
 class convolutional_layer : public layer {
@@ -127,7 +141,11 @@ public:
 	void virtual backward(layer* prev_layer) override;
 	void virtual backward(layer* prev_layer, layer* residual_layer) override;
 
-	void virtual update_paramters(double learning_rate) override;
+	void virtual update_paramters_stochastic_gradient_descent(double learning_rate) override;
+	void virtual update_paramters_stochastic_gradient_descent_with_momentum(double learning_rate, double sgd_mass) override {}
+	void virtual update_paramters_adaptive_gradient(double learning_rate) override {}
+	void virtual update_paramters_root_mean_squared_propagation(double learning_rate, double rho) override {}
+	void virtual update_paramters_adaptive_momentum(double learning_rate, double sgd_mass, double rho) override {}
 };
 
 class pooling_layer : public layer {
@@ -151,7 +169,7 @@ public:
 	void virtual forward(double* batched_inputs_1, double* batched_inputs_2, size_t _input_size, size_t _batch_size) override;
 	void virtual forward(const layer* prev_layer) override;
 	void virtual forward(const layer* prev_layer, const layer* residual_layer) override;
-	
+
 	double virtual loss(const std::vector<std::vector<double>>& batched_targets) const override;
 	double virtual loss(const std::vector<unsigned int>& batched_targets) const override;
 	double virtual loss(const std::vector<std::vector<std::vector<std::vector<double>>>>& batched_targets) const override;
@@ -168,5 +186,9 @@ public:
 	void virtual backward(layer* prev_layer) override;
 	void virtual backward(layer* prev_layer, layer* residual_layer) override;
 
-	void virtual update_paramters(double learning_rate){}
+	void virtual update_paramters_stochastic_gradient_descent(double learning_rate) override {}
+	void virtual update_paramters_stochastic_gradient_descent_with_momentum(double learning_rate, double sgd_mass) override {}
+	void virtual update_paramters_adaptive_gradient(double learning_rate) override {}
+	void virtual update_paramters_root_mean_squared_propagation(double learning_rate, double rho) override {}
+	void virtual update_paramters_adaptive_momentum(double learning_rate, double sgd_mass, double rho) override {}
 };

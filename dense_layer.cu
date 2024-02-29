@@ -173,20 +173,25 @@ __global__ static void Cuda_Matix_Addition(double* residual_batched_inputs, doub
 	}
 }
 
-__global__ static void Cuda_Stochastic_Graident_Decent(double* d_weights, double* d_bias, double* weights, double* bias,double learning_rate, size_t neurons, size_t inputs) {
+__global__ static void Cuda_Stochastic_Graident_Decent_Weights(double* d_weights, double* weights,double learning_rate, size_t neurons, size_t inputs) {
 
 	size_t neuron_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t input_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
 
 	if (neuron_idx < neurons && input_idx < inputs) {
 		weights[neuron_idx * inputs + input_idx] -= d_weights[neuron_idx * inputs + input_idx] * learning_rate;
-		if (input_idx == 0) {
-			bias[neuron_idx] -= d_bias[neuron_idx] * learning_rate;
-		}
 	}
 }
 
-__global__ static void Cuda_Stochastic_Graident_Decent_with_Momentum(double* d_weights, double* d_bias, double* weight_momentums, double* bias_momentums, double* bias, double* weights, double learning_rate, double sgd_mass, size_t neurons, size_t inputs) {
+__global__ static void Cuda_Stochastic_Graident_Decent_Bias(double* d_bias, double* bias, double learning_rate, size_t neurons) {
+
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+	if (neuron_idx < neurons) {
+		bias[neuron_idx] -= d_bias[neuron_idx] * learning_rate;
+	}
+}
+
+__global__ static void Cuda_Stochastic_Graident_Decent_with_Momentum_Weights(double* d_weights, double* weight_momentums, double* weights, double learning_rate, double sgd_mass, size_t neurons, size_t inputs) {
 	
 	size_t neuron_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t input_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -196,16 +201,21 @@ __global__ static void Cuda_Stochastic_Graident_Decent_with_Momentum(double* d_w
 		double parameter_update = sgd_mass * weight_momentums[neuron_idx * inputs + input_idx] - learning_rate * d_weights[neuron_idx * inputs + input_idx];
 		weights[neuron_idx * inputs + input_idx] += parameter_update;
 		weight_momentums[neuron_idx * inputs + input_idx] = parameter_update;
-		
-		if (input_idx == 0) {
-			parameter_update = sgd_mass * bias_momentums[neuron_idx] - learning_rate * d_weights[neuron_idx];
-			bias[neuron_idx] += parameter_update;
-			bias_momentums[neuron_idx] = parameter_update;
-		}
 	}
 }
 
-__global__ static void Cuda_Adaptive_Graident(double* d_weights, double* d_bias, double* weight_adagrad_cache, double* bias_adagrad_cache, double* weights, double* bias, double learning_rate, size_t neurons, size_t inputs) {
+__global__ static void Cuda_Stochastic_Graident_Decent_with_Momentum_Bias(double* d_bias, double* bias_momentums, double* bias, double sgd_mass, double learning_rate, size_t neurons) {
+	
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (neuron_idx < neurons) {
+		double parameter_update = sgd_mass * bias_momentums[neuron_idx] - learning_rate * d_bias[neuron_idx];
+		bias[neuron_idx] += parameter_update;
+		bias_momentums[neuron_idx] = parameter_update;
+	}
+}
+
+__global__ static void Cuda_Adaptive_Graident_Weights(double* d_weights, double* weight_adagrad_cache, double* weights, double learning_rate, size_t neurons, size_t inputs) {
 	
 	size_t neuron_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t input_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -215,15 +225,20 @@ __global__ static void Cuda_Adaptive_Graident(double* d_weights, double* d_bias,
 		weight_adagrad_cache[neuron_idx * inputs + input_idx] += (d_weights[neuron_idx * inputs + input_idx] * d_weights[neuron_idx * inputs + input_idx]);
 
 		weights[neuron_idx * inputs + input_idx] -= (learning_rate * d_weights[neuron_idx * inputs + input_idx]) / (std::sqrtf(weight_adagrad_cache[neuron_idx * inputs + input_idx]) + 1e-9);
-		
-		if (input_idx == 0) {
-			bias_adagrad_cache[neuron_idx] += (d_bias[neuron_idx] * d_bias[neuron_idx]);
-			bias[neuron_idx] -= learning_rate * d_bias[neuron_idx] / (std::sqrtf(bias_adagrad_cache[neuron_idx]) + 1e-9);
-		}
 	}
 }
 
-__global__ static void Cuda_Root_Mean_Square_Propagation(double* d_weights, double* d_bias, double* weight_rms_cache, double* bias_rms_cache, double* weights, double* bias, double learning_rate, double rho, size_t neurons, size_t inputs) {
+__global__ static void Cuda_Adaptive_Graident_Bias(double* d_bias, double* bias_adagrad_cache, double* bias, double learning_rate, size_t neurons) {
+
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (neuron_idx < neurons) {
+		bias_adagrad_cache[neuron_idx] += (d_bias[neuron_idx] * d_bias[neuron_idx]);
+		bias[neuron_idx] -= learning_rate * d_bias[neuron_idx] / (std::sqrtf(bias_adagrad_cache[neuron_idx]) + 1e-9);
+	}
+}
+
+__global__ static void Cuda_Root_Mean_Square_Propagation_Weights(double* d_weights, double* weight_rms_cache, double* weights, double learning_rate, double rho, size_t neurons, size_t inputs) {
 	
 	size_t neuron_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t input_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -233,15 +248,21 @@ __global__ static void Cuda_Root_Mean_Square_Propagation(double* d_weights, doub
 		int idx = neuron_idx * inputs + input_idx;
 		weight_rms_cache[idx] = rho * weight_rms_cache[idx] + (1 - rho) * d_weights[idx] * d_weights[idx];
 		weights[idx] -= learning_rate * d_weights[idx] / (std::sqrtf(weight_rms_cache[idx]) + 1e-9);
-		
-		if (input_idx == 0) {
-			bias_rms_cache[neuron_idx] = rho * bias_rms_cache[neuron_idx] + (1 - rho) * d_bias[neuron_idx] * d_bias[neuron_idx];
-			bias[neuron_idx] -= learning_rate * d_bias[neuron_idx] / (std::sqrtf(bias_rms_cache[neuron_idx]) + 1e-9);
-		}
 	}
 }
 
-__global__ static void Cuda_Adaptive_Momentum(double* d_weights, double* d_bias, double* weight_rms_cache, double* bias_rms_cache, double* weight_momentum, double* bias_momentum, double* weights, double* bias, double learning_rate, double rho, double sgd_mass, size_t neurons, size_t inputs){
+__global__ static void Cuda_Root_Mean_Square_Propagation_Bias(double* d_bias, double* bias_rms_cache, double* bias, double rho, double learning_rate, size_t neurons) {
+
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (neuron_idx < neurons) {
+		bias_rms_cache[neuron_idx] = rho * bias_rms_cache[neuron_idx] + (1 - rho) * d_bias[neuron_idx] * d_bias[neuron_idx];
+		bias[neuron_idx] -= learning_rate * d_bias[neuron_idx] / (std::sqrtf(bias_rms_cache[neuron_idx]) + 1e-9);
+	}
+
+}
+
+__global__ static void Cuda_Adaptive_Momentum_Weights(double* d_weights, double* weight_rms_cache, double* weight_momentum, double* weights, double learning_rate, double rho, double sgd_mass, size_t neurons, size_t inputs){
 	
 	size_t neuron_idx = (blockIdx.y * blockDim.y) + threadIdx.y;
 	size_t input_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
@@ -254,18 +275,22 @@ __global__ static void Cuda_Adaptive_Momentum(double* d_weights, double* d_bias,
 		weight_rms_cache[idx] = rho * weight_rms_cache[idx] + (1 - rho) * d_weights[idx] * d_weights[idx];
 
 		weights[idx] -= learning_rate * weight_momentum[idx] / (std::sqrt(weight_rms_cache[idx]) + 1e-7);
-
-		if (input_idx == 0) {
-
-			bias_momentum[neuron_idx] = sgd_mass * bias_momentum[neuron_idx] + (1 - sgd_mass) * d_bias[neuron_idx];
-
-			bias_rms_cache[neuron_idx] = rho * bias_rms_cache[neuron_idx] + (1 - rho) * d_bias[neuron_idx] * d_bias[neuron_idx];
-
-			bias[neuron_idx] -= learning_rate * bias_momentum[neuron_idx] / (std::sqrtf(bias_rms_cache[neuron_idx]) + 1e-7);
-		}
 	}
-
 }
+
+__global__ static void Cuda_Adaptive_Momentum_Bias(double* d_bias, double* bias_rms_cache, double* bias_momentum, double* bias, double sgd_mass, double rho, double learning_rate, size_t neurons) {
+
+	size_t neuron_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (neuron_idx < neurons) {
+		bias_momentum[neuron_idx] = sgd_mass * bias_momentum[neuron_idx] + (1 - sgd_mass) * d_bias[neuron_idx];
+
+		bias_rms_cache[neuron_idx] = rho * bias_rms_cache[neuron_idx] + (1 - rho) * d_bias[neuron_idx] * d_bias[neuron_idx];
+
+		bias[neuron_idx] -= learning_rate * bias_momentum[neuron_idx] / (std::sqrtf(bias_rms_cache[neuron_idx]) + 1e-7);
+	}
+}
+
 dense_layer::dense_layer() {
 	neurons = 0;
 	inputs = 0;
@@ -1178,11 +1203,19 @@ void dense_layer::update_paramters_stochastic_gradient_descent(double learning_r
 	dim3 blocks(inputs/16 + 1, neurons/16 + 1);
 	dim3 threads(16, 16);
 
-	Cuda_Stochastic_Graident_Decent<<<blocks, threads>>>(d_weights, d_bias, weights, bias, learning_rate, neurons, inputs);
+	Cuda_Stochastic_Graident_Decent_Weights<<<blocks, threads>>>(d_weights, weights, learning_rate, neurons, inputs);
 
 	cudaError error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: Failed to launch Graident Decent kernal in dense_layer" << std::endl;
+		std::cerr << "Error: Failed to launch first graident decent kernal in dense_layer" << std::endl;
+		exit(error_code);
+	}
+
+	Cuda_Stochastic_Graident_Decent_Bias<<<neurons/16 + 1, 16>>>(d_bias, bias, learning_rate, neurons);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second graident decent kernal in dense_layer" << std::endl;
 		exit(error_code);
 	}
 
@@ -1243,12 +1276,19 @@ void dense_layer::update_paramters_stochastic_gradient_descent_with_momentum(dou
 	dim3 blocks(inputs / 16 + 1, neurons / 16 + 1);
 	dim3 threads(16, 16);
 
-	Cuda_Stochastic_Graident_Decent_with_Momentum<<<blocks, threads>>>(d_weights, d_bias, weight_momentums, bias_momentums, bias, weights, learning_rate, sgd_mass, neurons, inputs);
+	Cuda_Stochastic_Graident_Decent_with_Momentum_Weights<<<blocks, threads>>>(d_weights, weight_momentums, weights, learning_rate, sgd_mass, neurons, inputs);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: Failed to launch Stochastic Gradient Descent with Momentum kernal in dense_layer" << std::endl;
+		std::cerr << "Error: Failed to launch first stochastic gradient descent with momentum kernal in dense_layer" << std::endl;
 		exit(error_code);
+	}
+
+	Cuda_Stochastic_Graident_Decent_Bias<<<neurons/16 + 1, 16>>>(d_bias, bias, learning_rate, neurons);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second stochastic gradient descent with momentum kernal in dense_layer" << std::endl;
 	}
 
 	error_code = cudaDeviceSynchronize();
@@ -1308,11 +1348,19 @@ void dense_layer::update_paramters_adaptive_gradient(double learning_rate) {
 	dim3 blocks(inputs / 16 + 1, neurons / 16 + 1);
 	dim3 threads(16, 16);
 
-	Cuda_Adaptive_Graident<<<blocks, threads>>>(d_weights, d_bias, weight_adagrad_cache, bias_adagrad_cache, weights, bias, learning_rate, neurons, inputs);
+	Cuda_Adaptive_Graident_Weights<<<blocks, threads>>>(d_weights, weight_adagrad_cache, weights, learning_rate, neurons, inputs);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: Failed to launch adapative graident kernal in dense_layer" << std::endl;
+		std::cerr << "Error: Failed to launch first adapative graident kernal in dense_layer" << std::endl;
+		exit(error_code);
+	}
+
+	Cuda_Adaptive_Graident_Bias<<<neurons/16 + 1, 16>>>(d_bias, bias_adagrad_cache, bias, learning_rate, neurons);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second adapative graident kernal in dense_layer" << std::endl;
 		exit(error_code);
 	}
 
@@ -1373,11 +1421,19 @@ void dense_layer::update_paramters_root_mean_squared_propagation(double learning
 	dim3 blocks(inputs / 16 + 1, neurons / 16 + 1);
 	dim3 threads(16, 16);
 
-	Cuda_Root_Mean_Square_Propagation<<<blocks, threads>>>(d_weights, d_bias, weight_rms_cache, bias_rms_cache, weights, bias, learning_rate, rho, neurons, inputs);
+	Cuda_Root_Mean_Square_Propagation_Weights<<<blocks, threads>>>(d_weights, weight_rms_cache, weights, learning_rate, rho, neurons, inputs);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: Failed to launch root mean square propagation kernal in dense_layer" << std::endl;
+		std::cerr << "Error: Failed to launch fist root mean square propagation kernal in dense_layer" << std::endl;
+		exit(error_code);
+	}
+
+	Cuda_Root_Mean_Square_Propagation_Bias<<<neurons/16 + 1, 16>>>(d_bias, bias_rms_cache, bias, rho, learning_rate, neurons);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second root mean square propagation kernal in dense_layer" << std::endl;
 		exit(error_code);
 	}
 
@@ -1400,6 +1456,9 @@ void dense_layer::update_paramters_adaptive_momentum(double learning_rate, doubl
 		cudaFree(bias_adagrad_cache);
 		cudaFree(weight_rms_cache);
 		cudaFree(bias_rms_cache);
+
+		weight_adagrad_cache = nullptr;
+		bias_adagrad_cache = nullptr;
 
 		error_code = cudaMalloc((void**)&weight_momentums, neurons * inputs * sizeof(double));
 		if (error_code != cudaError::cudaSuccess) {
@@ -1459,11 +1518,19 @@ void dense_layer::update_paramters_adaptive_momentum(double learning_rate, doubl
 	dim3 blocks(inputs / 16 + 1, neurons / 16 + 1);
 	dim3 threads(16, 16);
 
-	Cuda_Adaptive_Momentum<<<blocks, threads>>>(d_weights, d_bias, weight_rms_cache, bias_rms_cache, weight_momentums, bias_momentums, weights, bias, learning_rate, rho, sgd_mass, neurons, inputs);
+	Cuda_Adaptive_Momentum_Weights<<<blocks, threads>>>(d_weights, weight_rms_cache, weight_momentums, weights, learning_rate, rho, sgd_mass, neurons, inputs);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
-		std::cerr << "Error: Failed to launch adaptive momentum kernal in dense_layer" << std::endl;
+		std::cerr << "Error: Failed to launch first adaptive momentum kernal in dense_layer" << std::endl;
+		exit(error_code);
+	}
+
+	Cuda_Adaptive_Momentum_Bias<<<neurons/16 + 1, 16>>>(d_bias, bias_rms_cache, bias_momentums, bias, sgd_mass, rho, learning_rate, neurons);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch seocnd adaptive momentum kernal in dense_layer" << std::endl;
 		exit(error_code);
 	}
 
@@ -1493,10 +1560,10 @@ void Print_Cuda_Forward_Output(double* input_arr, size_t batch_size, size_t neur
 }
 void Modify_Cuda_Weight(double* input_arr,int parameter_idx, double esp) {
 
-	double* host_input_arr = (double*)malloc(sizeof(double));
-	cudaMemcpy(host_input_arr, input_arr + parameter_idx, sizeof(double), cudaMemcpyDeviceToHost);
+	double host_input = 0;
+	cudaMemcpy(&host_input, input_arr + parameter_idx, sizeof(double), cudaMemcpyDeviceToHost);
 	
-	*host_input_arr += esp;
+	host_input += esp;
 	
-	cudaMemcpy(input_arr + parameter_idx, host_input_arr, sizeof(double), cudaMemcpyHostToDevice);
+	cudaMemcpy(input_arr + parameter_idx, &host_input, sizeof(double), cudaMemcpyHostToDevice);
 }

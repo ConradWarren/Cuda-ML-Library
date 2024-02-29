@@ -247,20 +247,130 @@ __global__ static void Cuda_Matrix_Addition(double* residual_inputs, double* for
 	}
 }
 
-__global__ static void Cuda_Graident_Decent(double* d_weights, double* d_bias, double* weights, double* bias, double learning_rate, size_t kernals, size_t channels, size_t kernal_size) {
+__global__ static void Cuda_Graident_Decent_Weights(double* d_weights, double* weights, double learning_rate, size_t kernals, size_t channels, size_t kernal_size) {
 	
 	size_t kernal_idx = blockIdx.x * blockDim.x + threadIdx.x;
 	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
 	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
 
 	if (kernal_idx < kernals && channel_idx < channels && position_idx < (kernal_size * kernal_size)) {
-
 		weights[kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx] -= d_weights[kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx] * learning_rate;
-		if (channel_idx == 0 && position_idx == 0) {
-			bias[kernal_idx] -= d_bias[kernal_idx] * learning_rate;
-		}
+	}
+}
+
+__global__ static void Cuda_Graident_Decent_Bias(double* d_bias, double* bias, double learning_rate, size_t kernals) {
+
+	size_t kernal_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	
+	if (kernal_idx < kernals) {
+		bias[kernal_idx] -= d_bias[kernal_idx] * learning_rate;
+	}
+}
+
+__global__ static void Cuda_Stochastic_Graident_Decent_with_Momentum_Weights(double* d_weights, double* weight_momentums, double* weights, double learning_rate, double sgd_mass, size_t kernals, size_t channels, size_t kernal_size) {
+
+	size_t kernal_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
+
+	if (kernal_idx < kernals && channel_idx < channels && position_idx < (kernal_size * kernal_size)) {
+		int idx = kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx;
+		double parameter_update = sgd_mass * weight_momentums[idx] - learning_rate * d_weights[idx];
+		weights[idx] += parameter_update;
+		weight_momentums[idx] = parameter_update;
+	}
+}
+
+__global__ static void Cuda_Stochastic_Graident_Decent_with_Momentum_Bias(double* d_bias, double* bias_momentums, double* bias, double sgd_mass, double learning_rate, size_t kernals) {
+
+	size_t kernal_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (kernal_idx < kernals) {
+		double parameter_update = sgd_mass * bias_momentums[kernal_idx] - learning_rate * d_bias[kernal_idx];
+		bias[kernal_idx] += parameter_update;
+		bias_momentums[kernal_idx] = parameter_update;
+	}
+}
+
+__global__ static void Cuda_Adaptive_Graident_Weights(double* d_weights, double* weight_adagrad_cache, double* weights, double learning_rate, size_t kernals, size_t channels, size_t kernal_size) {
+
+	size_t kernal_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
+
+	if (kernal_idx < kernals && channel_idx < channels && position_idx < (kernal_size * kernal_size)) {
+
+		int idx = kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx;
+
+		weight_adagrad_cache[idx] += (d_weights[idx] * d_weights[idx]);
+
+		weights[idx] -= (learning_rate * d_weights[idx]) / (std::sqrtf(weight_adagrad_cache[idx]) + 1e-9);
+	}
+}
+
+__global__ static void Cuda_Adaptive_Graident_Bias(double* d_bias, double* bias_adagrad_cache, double* bias, double learning_rate, size_t kernals) {
+
+	size_t kernal_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (kernal_idx < kernals) {
+		bias_adagrad_cache[kernal_idx] += (d_bias[kernal_idx] * d_bias[kernal_idx]);
+		bias[kernal_idx] -= learning_rate * d_bias[kernal_idx] / (std::sqrtf(bias_adagrad_cache[kernal_idx]) + 1e-9);
+	}
+}
+
+__global__ static void Cuda_Root_Mean_Square_Propagation_Weights(double* d_weights, double* weight_rms_cache, double* weights, double learning_rate, double rho, size_t kernals, size_t channels, size_t kernal_size) {
+
+	size_t kernal_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
+
+	if (kernal_idx < kernals && channel_idx < channels && position_idx < (kernal_size * kernal_size)) {
+
+		int idx = kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx;
+		weight_rms_cache[idx] = rho * weight_rms_cache[idx] + (1 - rho) * d_weights[idx] * d_weights[idx];
+		weights[idx] -= learning_rate * d_weights[idx] / (std::sqrtf(weight_rms_cache[idx]) + 1e-9);
+	}
+}
+
+__global__ static void Cuda_Root_Mean_Square_Propagation_Bias(double* d_bias, double* bias_rms_cache, double* bias, double rho, double learning_rate, size_t kernals) {
+
+	size_t kernal_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (kernal_idx < kernals) {
+		bias_rms_cache[kernal_idx] = rho * bias_rms_cache[kernal_idx] + (1 - rho) * d_bias[kernal_idx] * d_bias[kernal_idx];
+		bias[kernal_idx] -= learning_rate * d_bias[kernal_idx] / (std::sqrtf(bias_rms_cache[kernal_idx]) + 1e-9);
 	}
 
+}
+
+__global__ static void Cuda_Adaptive_Momentum_Weights(double* d_weights, double* weight_rms_cache, double* weight_momentum, double* weights, double learning_rate, double rho, double sgd_mass, size_t kernals, size_t channels, size_t kernal_size) {
+
+	size_t kernal_idx = blockIdx.x * blockDim.x + threadIdx.x;
+	size_t channel_idx = blockIdx.y * blockDim.y + threadIdx.y;
+	size_t position_idx = blockIdx.z * blockDim.z + threadIdx.z;
+
+	if (kernal_idx < kernals && channel_idx < channels && position_idx < (kernal_size * kernal_size)) {
+
+		int idx = kernal_idx * channels * kernal_size * kernal_size + channel_idx * kernal_size * kernal_size + position_idx;
+		weight_momentum[idx] = sgd_mass * weight_momentum[idx] + (1 - sgd_mass) * d_weights[idx];
+
+		weight_rms_cache[idx] = rho * weight_rms_cache[idx] + (1 - rho) * d_weights[idx] * d_weights[idx];
+
+		weights[idx] -= learning_rate * weight_momentum[idx] / (std::sqrt(weight_rms_cache[idx]) + 1e-7);
+	}
+}
+
+__global__ static void Cuda_Adaptive_Momentum_Bias(double* d_bias, double* bias_rms_cache, double* bias_momentum, double* bias, double sgd_mass, double rho, double learning_rate, size_t kernals) {
+
+	size_t kernal_idx = (blockIdx.x * blockDim.x) + threadIdx.x;
+
+	if (kernal_idx < kernals) {
+		bias_momentum[kernal_idx] = sgd_mass * bias_momentum[kernal_idx] + (1 - sgd_mass) * d_bias[kernal_idx];
+
+		bias_rms_cache[kernal_idx] = rho * bias_rms_cache[kernal_idx] + (1 - rho) * d_bias[kernal_idx] * d_bias[kernal_idx];
+
+		bias[kernal_idx] -= learning_rate * bias_momentum[kernal_idx] / (std::sqrtf(bias_rms_cache[kernal_idx]) + 1e-7);
+	}
 }
 
 convolutional_layer::convolutional_layer() { 
@@ -336,6 +446,12 @@ convolutional_layer::convolutional_layer(size_t _input_size, size_t _channels, s
 
 	forward_output = nullptr;
 	backward_input = nullptr;
+	weight_momentums = nullptr;
+	bias_momentums = nullptr;
+	weight_adagrad_cache = nullptr;
+	bias_adagrad_cache = nullptr;
+	weight_rms_cache = nullptr;
+	bias_rms_cache = nullptr;
 	layer_activation_function = _layer_activation_function;
 
 	double* temp_weights = (double*)malloc(kernals * channels * kernal_size * kernal_size * sizeof(double));
@@ -383,6 +499,12 @@ convolutional_layer::~convolutional_layer() {
 	cudaFree(d_weights);
 	cudaFree(bias);
 	cudaFree(d_bias);
+	cudaFree(weight_momentums);
+	cudaFree(bias_momentums);
+	cudaFree(weight_adagrad_cache);
+	cudaFree(bias_adagrad_cache);
+	cudaFree(weight_rms_cache);
+	cudaFree(bias_rms_cache);
 	cudaFree(forward_output);
 	cudaFree(backward_input);
 }
@@ -1181,7 +1303,7 @@ void convolutional_layer::update_paramters_stochastic_gradient_descent(double le
 	dim3 blocks(kernals / 6 + 1, channels / 6 + 1, (kernal_size * kernal_size) / 6 + 1);
 	dim3 threads(6, 6, 6);
 
-	Cuda_Graident_Decent<<<blocks, threads>>>(d_weights, d_bias, weights, bias, learning_rate, kernals, channels, kernal_size);
+	Cuda_Graident_Decent_Weights<<<blocks, threads>>>(d_weights, weights, learning_rate, kernals, channels, kernal_size);
 
 	cudaError error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -1189,9 +1311,333 @@ void convolutional_layer::update_paramters_stochastic_gradient_descent(double le
 		exit(error_code);
 	}
 
+	Cuda_Graident_Decent_Bias<<<kernals/16 +1, threas>>>(d_bias, bias, learning_rate, kernals);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second graidnet decent kernal in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
 	error_code = cudaDeviceSynchronize();
 	if (error_code != cudaError::cudaSuccess) {
 		std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+}
+
+void convolutional_layer::update_paramters_stochastic_gradient_descent_with_momentum(double learning_rate, double sgd_mass) {
+
+	cudaError error_code;
+
+	if (weight_momentums == nullptr) {
+
+		cudaFree(weight_adagrad_cache);
+		cudaFree(bias_adagrad_cache);
+		cudaFree(weight_rms_cache);
+		cudaFree(bias_rms_cache);
+
+		weight_adagrad_cache = nullptr;
+		bias_adagrad_cache = nullptr;
+		weight_rms_cache = nullptr;
+		bias_rms_cache = nullptr;
+
+		error_code = cudaMalloc((void**)&weight_momentums, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(weight_momentums, 0, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMalloc((void**)&bias_momentums, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(bias_momentums, 0, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaDeviceSynchronize();
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+	}
+
+	dim3 blocks(kernals / 6 + 1, channels / 6 + 1, (kernal_size * kernal_size) / 6 + 1);
+	dim3 threads(6, 6, 6);
+
+	Cuda_Stochastic_Graident_Decent_with_Momentum_Weights<<<blocks, threads>>>(d_weights, weight_momentums, weights, learning_rate, sgd_mass, kernals, channels, kernal_size);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch first stochastic gradient descent with momentum kernal in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	Cuda_Stochastic_Graident_Decent_with_Momentum_Bias<<<blocks, threads>>>(d_bias, bias_momentums, bias, sgd_mass, learning_rate, kernals);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second stochastic gradient descent with momentum kernal in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+}
+
+void convolutional_layer::update_paramters_adaptive_gradient(double learning_rate) {
+
+	cudaError error_code;
+
+	if (weight_adagrad_cache == nullptr) {
+
+		cudaFree(weight_momentums);
+		cudaFree(bias_momentums);
+		cudaFree(weight_rms_cache);
+		cudaFree(bias_rms_cache);
+
+		weight_momentums = nullptr;
+		bias_momentums = nullptr;
+		weight_rms_cache = nullptr;
+		bias_rms_cache = nullptr;
+
+		error_code = cudaMalloc((void**)&weight_adagrad_cache, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(weight_adagrad_cache, 0, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMalloc((void**)&bias_adagrad_cache, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(bias_adagrad_cache, 0, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaDeviceSynchronize();
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+	}
+
+	dim3 blocks(kernals / 6 + 1, channels / 6 + 1, (kernal_size * kernal_size) / 6 + 1);
+	dim3 threads(6, 6, 6);
+
+	Cuda_Adaptive_Graident_Weights<<<blocks, threads>>>(d_weights, weight_adagrad_cache, weights, learning_rate, kernals, channels, kernal_size);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch first adaptive graident kernal in convolutional kernal" << std::endl;
+		exit(error_code);
+	}
+
+	Cuda_Adaptive_Graident_Bias<<<kernals/16 + 1, 16>>>(d_bias, bias_adagrad_cache, bias, learning_rate, kernals);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second adaptive graident kernal in convolutional kernal" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviveSynchronize failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+}
+
+void convolutional_layer::update_paramters_root_mean_squared_propagation(double learning_rate, double rho) {
+
+	cudaError error_code;
+
+	if (weight_rms_cache == nullptr) {
+
+		cudaFree(weight_momentums);
+		cudaFree(bias_momentums);
+		cudaFree(weight_adagrad_cache);
+		cudaFree(bias_adagrad_cache);
+
+		weight_momentums = nullptr;
+		bias_momentums = nullptr;
+		weight_adagrad_cache = nullptr;
+		bias_adagrad_cache = nullptr;
+
+		error_code = cudaMalloc((void**)&weight_rms_cache, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(weight_rms_cache, 0, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMalloc((void**)&bias_rms_cache, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(bias_rms_cache, 0, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaDeviceSynchronize();
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+	}
+
+	dim3 blocks(kernals / 6 + 1, channels / 6 + 1, (kernal_size * kernal_size) / 6 + 1);
+	dim3 threads(6, 6, 6);
+	
+	Cuda_Root_Mean_Square_Propagation_Weights<<<blocks, threads>>>(d_weights, weight_rms_cache, weights, learning_rate, rho, kernals, channels, kernal_size);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch first root mean square propagation kernal in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	Cuda_Root_Mean_Square_Propagation_Bias<<<kernals/16 + 1, 16>>>(d_bias, bias_rms_cache, bias, rho, learning_rate, kernals);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second root mean square propagation kernal in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+}
+
+void convolutional_layer::update_paramters_adaptive_momentum(double learning_rate, double sgd_mass, double rho) {
+
+	cudaError error_code;
+
+	if (weight_momentums == nullptr || weight_rms_cache == nullptr) {
+		
+		cudaFree(weight_momentums);
+		cudaFree(bias_momentums);
+		cudaFree(weight_adagrad_cache);
+		cudaFree(bias_adagrad_cache);
+		cudaFree(weight_rms_cache);
+		cudaFree(bias_rms_cache);
+
+		weight_adagrad_cache = nullptr;
+		bias_adagrad_cache = nullptr;
+
+		error_code = cudaMalloc((void**)&weight_momentums, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(weight_momentums, 0, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMalloc((void**)&bias_momentums, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(bias_momentums, 0, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMalloc((void**)&weight_rms_cache, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(weight_rms_cache, 0, kernals * channels * kernal_size * kernal_size * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMalloc((void**)&bias_rms_cache, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMalloc failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaMemset(bias_rms_cache, 0, kernals * sizeof(double));
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaMemset failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+
+		error_code = cudaDeviceSynchronize();
+		if (error_code != cudaError::cudaSuccess) {
+			std::cerr << "Error: cudaDeviceSynchronize failed in convolutional_layer" << std::endl;
+			exit(error_code);
+		}
+	}
+	
+	dim3 blocks(kernals / 6 + 1, channels / 6 + 1, (kernal_size * kernal_size) / 6 + 1);
+	dim3 threads(6, 6, 6);
+
+	Cuda_Adaptive_Momentum_Weights<<<blocks, threads>>>(d_weights, weight_rms_cache, weight_momentums, weights, learning_rate, rho, sgd_mass, kernals, channels, kernal_size);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch first adaptive momentum kernal in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	Cuda_Adaptive_Momentum_Bias<<<kernals/16 + 1, 16>>>(d_bias, bias_rms_cache, bias_momentums, bias, sgd_mass, rho, learning_rate, kernals);
+
+	error_code = cudaGetLastError();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second adaptive momentum kernal in convolutional_layer" << std::endl;
+		exit(error_code);
+	}
+
+	error_code = cudaDeviceSynchronize();
+	if (error_code != cudaError::cudaSuccess) {
+		std::cerr << "Error: Failed to launch second adaptive momentum kernal in convolutional_layer" << std::endl;
 		exit(error_code);
 	}
 }

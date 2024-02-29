@@ -41,9 +41,11 @@ int main(void) {
 	layer_3.forward(&layer_2);
 	layer_4.forward(&layer_3);
 
+	Print_Cuda_Forward_Output(layer_4.bias, 1, 5);
+
 	for (int i = 0; i < 1000; i++) {
 
-		std::cout << i << ": " << layer_4.loss(batched_targets)<<'\n';
+	//	std::cout << i << ": " << layer_4.loss(batched_targets)<<'\n';
 
 		layer_4.init_back_propigation(batched_targets);
 		layer_4.backward(&layer_3);
@@ -51,16 +53,18 @@ int main(void) {
 		layer_2.backward(&layer_1);
 		layer_1.backward(batched_inputs);
 
-		layer_4.update_paramters_adaptive_momentum(1e-3, 0.9, 0.999);
-		layer_3.update_paramters_adaptive_momentum(1e-3, 0.9, 0.999);
-		layer_2.update_paramters_adaptive_momentum(1e-3, 0.9, 0.999);
-		layer_1.update_paramters_adaptive_momentum(1e-3, 0.9, 0.999);
+		layer_4.update_paramters_stochastic_gradient_descent(1e-3);
+		layer_3.update_paramters_stochastic_gradient_descent(1e-3);
+		layer_2.update_paramters_stochastic_gradient_descent(1e-3);
+		layer_1.update_paramters_stochastic_gradient_descent(1e-3);
 
 		layer_1.forward(batched_inputs);
 		layer_2.forward(&layer_1);
 		layer_3.forward(&layer_2);
 		layer_4.forward(&layer_3);
 	}
+	
+	
 
 	return 0;
 }

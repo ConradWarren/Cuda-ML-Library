@@ -106,6 +106,12 @@ public:
 	double* bias;
 	double* d_weights;
 	double* d_bias;
+	double* weight_momentums;
+	double* bias_momentums;
+	double* weight_adagrad_cache;
+	double* bias_adagrad_cache;
+	double* weight_rms_cache;
+	double* bias_rms_cache;
 	size_t kernals;
 	size_t kernal_size;
 	size_t channels;
@@ -142,10 +148,10 @@ public:
 	void virtual backward(layer* prev_layer, layer* residual_layer) override;
 
 	void virtual update_paramters_stochastic_gradient_descent(double learning_rate) override;
-	void virtual update_paramters_stochastic_gradient_descent_with_momentum(double learning_rate, double sgd_mass) override {}
-	void virtual update_paramters_adaptive_gradient(double learning_rate) override {}
-	void virtual update_paramters_root_mean_squared_propagation(double learning_rate, double rho) override {}
-	void virtual update_paramters_adaptive_momentum(double learning_rate, double sgd_mass, double rho) override {}
+	void virtual update_paramters_stochastic_gradient_descent_with_momentum(double learning_rate, double sgd_mass) override;
+	void virtual update_paramters_adaptive_gradient(double learning_rate) override;
+	void virtual update_paramters_root_mean_squared_propagation(double learning_rate, double rho) override;
+	void virtual update_paramters_adaptive_momentum(double learning_rate, double sgd_mass, double rho) override;
 };
 
 class pooling_layer : public layer {

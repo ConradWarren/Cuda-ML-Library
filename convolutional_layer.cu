@@ -1311,7 +1311,7 @@ void convolutional_layer::update_paramters_stochastic_gradient_descent(double le
 		exit(error_code);
 	}
 
-	Cuda_Graident_Decent_Bias<<<kernals/16 +1, threas>>>(d_bias, bias, learning_rate, kernals);
+	Cuda_Graident_Decent_Bias<<<kernals/16 + 1, 16>>>(d_bias, bias, learning_rate, kernals);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
@@ -1325,6 +1325,7 @@ void convolutional_layer::update_paramters_stochastic_gradient_descent(double le
 		exit(error_code);
 	}
 }
+
 
 void convolutional_layer::update_paramters_stochastic_gradient_descent_with_momentum(double learning_rate, double sgd_mass) {
 

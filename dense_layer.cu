@@ -1284,7 +1284,7 @@ void dense_layer::update_paramters_stochastic_gradient_descent_with_momentum(dou
 		exit(error_code);
 	}
 
-	Cuda_Stochastic_Graident_Decent_Bias<<<neurons/16 + 1, 16>>>(d_bias, bias, learning_rate, neurons);
+	Cuda_Stochastic_Graident_Decent_with_Momentum_Bias<<<neurons/16 + 1, 16>>>(d_bias,bias_momentums,  bias, learning_rate,sgd_mass, neurons);
 
 	error_code = cudaGetLastError();
 	if (error_code != cudaError::cudaSuccess) {
